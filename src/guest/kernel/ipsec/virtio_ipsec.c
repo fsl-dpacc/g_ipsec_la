@@ -3245,12 +3245,125 @@ int32 virt_ipsec_add_to_available_list(struct v_ipsec_device *v_ipsec_dev)
 			
 	spin_lock_bh(&device_list_lock);
 	list_add((struct list_head *)v_ipsec_dev->link, &_device_list.prev, _device_list.next);
+	num_devices++;
 	spin_unlock_bh(&device_list_lock);
 	
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
-int32 virtio_ipsec_mgr_remove_from_list(struct virtio_ipsec_info *dev)
+
+int32 g_ipsec_la_avail_devices_get_num(u32 *);
+
+int32 virt_ipsec_avail_devices_get_num(uint32 *nr_devices) 
+{
+	*nr_devices = num_devices;
+	return VIRTIO_IPSEC_SUCCESS;
+}
+
+int32 g_ipsec_la_avail_devices_get_info(
+	struct g_ipsec_la_avail_devices_get_inargs *in,
+	struct g_ipsec_la_avail_devices_get_outargs *out);
+
+struct g_ipsec_la_avail_devices_get_inargs 
+{
+	uint32 num_devices;
+	char *last_device_read; /* NULL if this is the first time this call is invoked;
+	                                           * Subsequent calls will have a valid value here */											  
+};
+
+struct g_ipsec_la_device_info
+{
+	char device_name[IPSEC_IFNAMESIZ];
+	u8 mode; /* Shared or Available */
+	u32 num_apps; /* If shared */
+};
+
+struct g_ipsec_la_avail_devices_get_outargs
+{
+	uint32 num_devices; /* filled by API */
+	/* Array of pointers, where each points to
+	                                      device specific information */
+	struct g_ipsec_la_device_info *dev_info; 						
+	char *last_device_read; /* Send a value that the application can use and
+	                                           * invoke for the next set of devices */
+	bool b_more_devices;
+};
+
+int32 virt_ipsec_avail_devices_get_info(
+	struct g_ipsec_la_avail_devices_get_inargs *in,
+	struct g_ipsec_la_avail_devices_get_outargs *out)
+{
+	struct v_ipsec_device *dev;
+	u32 ii, num_iter=0;
+	bool index_found = TRUE;
+
+	if (in->last_device_read)
+		index_found = FALSE;
+	
+	do {
+		if ((num_iter > 0) && (index_found == FALSE)) {
+			/* devce reference invalid */
+			return VIRTIO_IPSEC_FAILURE;
+		}
+		spin_lock_bh(&device_list_lock);
+		dev = list_first_entry_or_null(&_device_list);
+		spin_unlock_bh(&device_list_lock);
+		if (dev) {
+			if (index_found == FALSE) {
+				if (strcmp(in->last_device_read,dev->info.name)==0) {
+					index_found = TRUE;
+					spin_lock_bh(&device_list_lock);
+					dev = list_next_entry(dev,link);
+					spin_unlock_bh(&device_list_lock);
+					continue;
+				}
+				else {
+					num_iter++;
+				}
+			} 
+			else {
+				if (dev->mode == G_IPSEC_LA_INSTANCE_EXCLUSIVE) { /* skip */
+					continue;
+				}
+				/* copy from device */
+				strcpy(out->dev_info[ii].device_name, dev->info->name);
+				out->dev_info[ii].mode = dev->mode;
+				out->dev_info[ii].num_apps = dev->num_apps;
+				ii++;
+				if (ii == in->num_devices) {
+					if (dev->link.next != NULL) {
+						out->b_more_devices = TRUE;
+						strcpy(out->last_device_read, dev->info->name);
+					}
+					break;
+				}
+			}
+		}
+	}while(1);
+	return VIRTIO_IPSEC_SUCCESS;
+}
+
+
+#define G_IPSEC_APP_GRP_NAME_SIZE 256;
+
+struct g_ipsec_la_app_info
+{
+	char app_name[G_IPSEC_APP_GRP_NAME_SIZE];
+	bool has_groups;
+	union {
+		u32 num_groups;
+		u32 num_sas;
+	};
+};
+
+
+int32 virt_ipsec_get_available_devices(struct g_ipsec_la_get_available_list_inargs *in,
+	struct g_ipsec_la_get_available_list_outargs *out)
+{
+}
+
+
+int32 virt_ipsec_remove_from_list(struct virtio_ipsec_info *dev)
 {
 	struct v_ipsec_device *v_ipsec_dev = container_of(dev,(struct v_ipsec_device),info);
 	u32 index;

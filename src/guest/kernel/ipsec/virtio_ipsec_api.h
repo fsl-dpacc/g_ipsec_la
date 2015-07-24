@@ -41,6 +41,7 @@
 
 /* Enumerations */
 enum g_ipsec_la_mode {
+	G_IPSEC_LA_INSTANCE_AVAILABLE=0,
 	G_IPSEC_LA_INSTANCE_EXCLUSIVE=1, /* Exclusive Mode */
 	G_IPSEC_LA_INSTANCE_SHARED	/* Shared Mode */
 };
@@ -176,6 +177,32 @@ struct g_ipsec_la_resp_args {
 struct g_ipsec_la_handle {
 	uint32_t handle[G_IPSEC_LA_HANDLE_SIZE]; /* Accelerator handle */
 	uint32_t group_handle[G_IPSEC_LA_GROUP_HANDLE_SIZE]; /* Group handle */
+};
+
+struct g_ipsec_la_avail_devices_get_inargs 
+{
+	uint32 num_devices;
+	char *last_device_read; /* NULL if this is the first time this call is invoked;
+	                                           * Subsequent calls will have a valid value here */											  
+};
+
+struct g_ipsec_la_device_info
+{
+	char device_name[IPSEC_IFNAMESIZ];
+	u8 mode; /* Shared or Available */
+	u32 num_apps; /* If shared */
+};
+
+struct g_ipsec_la_avail_devices_get_outargs
+{
+	uint32 num_devices; /* filled by API */
+	/* Array of pointers, where each points to
+	    device specific information */
+	struct g_ipsec_la_device_info *dev_info; 						
+	char *last_device_read; 
+	/* Send a value that the application can use and
+	  * invoke for the next set of devices */
+	bool b_more_devices;
 };
 
 
@@ -476,6 +503,13 @@ struct g_ipsec_la_data {
 
 /* Function prototypes */
 int32_t g_ipsec_la_get_api_version(char *version);
+
+int32 g_ipsec_la_avail_devices_get_num(uint32 *nr_devices); 
+
+int32 g_ipsec_la_avail_devices_get_info(
+	struct g_ipsec_la_avail_devices_get_inargs *in,
+	struct g_ipsec_la_avail_devices_get_outargs *out);
+
 
 int32_t g_ipsec_la_open(
 	enum g_ipsec_la_mode mode, /* Mode = EXCLUSIVE OR SHARED */
