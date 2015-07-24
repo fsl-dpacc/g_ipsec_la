@@ -1,0 +1,1 @@
+cmd_/home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.ko := ld -r -m elf_x86_64 -T /home/subha/linux-devel/scripts/module-common.lds --build-id  -o /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.ko /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.o /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.mod.o

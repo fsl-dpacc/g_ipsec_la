@@ -1,0 +1,1 @@
+cmd_/home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.o := ld -m elf_x86_64   -r -o /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_ipsec.o /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_linux_ipsec.o /home/subha/asf/asfmodule/asfctrl/linux/ipsec/asfctrl_linux_ipsec_hooks.o 
