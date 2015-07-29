@@ -86,6 +86,12 @@ void asf_virtio_inteface_init()
 		strcpy(_asf_device->name, out->dev_info[ii], name);
 		}
 
+	struct g_ipsec_la_open_inargs in_open;
+	struct g_ipsec_la_open_outargs out_open;
+
+	in_open.device_id = out->dev_info[ii].device_name;
+	in_open.
 	/* Open the device */
+	ret = g_ipsec_la_open(G_IPSEC_LA_INSTANCE_EXCLUSIVE,struct g_ipsec_la_open_inargs * in,struct g_ipsec_la_open_outargs * out)
 		
 }
