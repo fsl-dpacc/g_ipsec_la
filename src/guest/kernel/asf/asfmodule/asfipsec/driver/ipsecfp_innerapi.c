@@ -3239,6 +3239,7 @@ unsigned int secfp_CreateInSA(
 		} else
 			pSA->usNatHdrSize = 0;
 
+
 #ifdef CONFIG_ASF_SEC4x
 		pSA->option[1] = SECFP_NONE;
 		if (pSA->SAParams.bEncrypt && pSA->SAParams.bAuth)
@@ -3259,6 +3260,11 @@ unsigned int secfp_CreateInSA(
 #else
 		secfp_createInSATalitosDesc(pSA);
 #endif
+#ifdef CONFIG_ASF_VIO_IPSEC
+		/* New API for virtio IPsec */
+		secfp_createInSAVIpsec(pSA);
+#endif
+
 #ifndef ASF_QMAN_IPSEC
 			pSA->prepareInDescriptor = secfp_prepareInDescriptor;
 #if defined(CONFIG_ASF_SEC3x)

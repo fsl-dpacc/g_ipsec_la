@@ -1762,6 +1762,7 @@ static inline int secfp_try_fastPathOutv4(
 		ASFIPSEC_DBGL2("Before secfp-submit:"
 			"skb= 0x%x, skb->data= 0x%x, skb->dev= 0x%x\n",
 			(int)skb, (int)skb->data, (int)skb->dev);
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifndef ASF_QMAN_IPSEC
 		/* Keeping REF_INDEX as 2, one for the h/w
 		and one for the core */
@@ -1780,6 +1781,7 @@ static inline int secfp_try_fastPathOutv4(
 		else
 			pSA->prepareOutDescriptor(skb, pSA, desc, 0);
 #endif /*ASF_QMAN_IPSEC*/
+#endif
 
 		ASFIPSEC_FPRINT("Pkt Pre Processing len=%d", skb->len);
 		ASFIPSEC_HEXDUMP(skb->data, skb->len);
@@ -1799,6 +1801,7 @@ static inline int secfp_try_fastPathOutv4(
 
 		ASFIPSEC_DEBUG("OUT-submit to SEC");
 		pIPSecPPGlobalStats->ulTotOutRecvPktsSecApply++;
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifndef CONFIG_ASF_SEC4x
 		update_chan_out(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
@@ -1809,6 +1812,9 @@ static inline int secfp_try_fastPathOutv4(
 		if (caam_jr_enqueue(pSA->ctx.jrdev,
 			((struct aead_edesc *)desc)->hw_desc,
 			pSA->outComplete, (void *)skb))
+#endif
+#else
+		if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
@@ -1831,6 +1837,7 @@ static inline int secfp_try_fastPathOutv4(
 			goto drop_skb_list;
 		}
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifdef CONFIG_ASF_SEC3x
 		skb->cb[SECFP_REF_INDEX]--;
 		if (pSA->option[1] != SECFP_NONE) {
@@ -1863,7 +1870,11 @@ static inline int secfp_try_fastPathOutv4(
 
 			if (talitos_submit(pdev, pSA->chan, desc,
 					pSA->outComplete,
-					(void *)skb) == -EAGAIN) {
+					(void *)skb) == -EAGAIN)
+#else
+			if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
+#endif 		
+			{
 				ASFIPSEC_WARN("Outbound Submission to"\
 						"SEC failed ");
 				ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT13]);
@@ -4967,7 +4978,9 @@ So all these special boundary cases need to be handled for nr_frags*/
 
 		ASFIPSEC_DEBUG("Calling secfp-submit");
 		pHeadSkb->cb[SECFP_REF_INDEX] = 2;
+
 #ifndef ASF_QMAN_IPSEC
+#ifndef CONFIG_ASF_VIO_IPSEC
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
@@ -4977,6 +4990,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 			rcu_read_unlock();
 			return 0;
 		}
+#endif /* CONFIG_ASF_VIO_IPSEC */
 #if defined(CONFIG_ASF_SEC3x)
 		if ((secin_sg_flag & SECFP_SCATTER_GATHER)
 			== SECFP_SCATTER_GATHER)
@@ -5075,6 +5089,7 @@ sa_expired:
 		}
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
 		pIPSecPPGlobalStats->ulTotInRecvSecPkts++;
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifndef CONFIG_ASF_SEC4x
 		update_chan_in(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
@@ -5083,12 +5098,19 @@ sa_expired:
 			(void *)pHeadSkb) == -EAGAIN)
 #elif defined(ASF_QMAN_IPSEC)
 		if (secfp_qman_in_submit(pSA, pHeadSkb))
+
 #else
 		if (caam_jr_enqueue(pSA->ctx.jrdev,
 			((struct aead_edesc *)desc)->hw_desc,
 			(secin_sg_flag & SECFP_SCATTER_GATHER) ?
 			pSA->inCompleteWithFrags : pSA->inComplete,
 			(void *)pHeadSkb))
+#endif
+#else			
+		if (secfp_vio_decap(pSA,pHeadSkb, 
+						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
+					pSA->inCompleteWithFrags : pSA->inComplete,
+					(void *)pHeadSkb)
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
@@ -5113,6 +5135,7 @@ sa_expired:
 		if (pSA->option[1] != SECFP_NONE) {
 			pHeadSkb->cb[SECFP_REF_INDEX]++;
 
+#ifndef CONFIG_ASF_VIO_IPSEC
 			desc = secfp_desc_alloc();
 
 			if (!desc) {
@@ -5140,7 +5163,14 @@ sa_expired:
 			if (talitos_submit(pdev, pSA->chan, desc,
 				(secin_sg_flag & SECFP_SCATTER_GATHER)
 				? pSA->inCompleteWithFrags : pSA->inComplete,
-				(void *)pHeadSkb) == -EAGAIN) {
+				(void *)pHeadSkb) == -EAGAIN)
+#else
+			if (secfp_vio_decap(pSA,pHeadSkb, 
+						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
+					pSA->inCompleteWithFrags : pSA->inComplete,
+					(void *)pHeadSkb)
+#endif
+				{
 				ASFIPSEC_WARN("Inbound Submission to SEC failed");
 
 				/* Mark SKB action index to drop */

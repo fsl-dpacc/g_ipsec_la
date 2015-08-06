@@ -465,6 +465,7 @@ typedef struct inSA_s {
 	unsigned int ulSPDSelSetIndexMagicNum;
 	unsigned int ulLastSeqNum;
 	unsigned int *pWinBitMap;
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifdef CONFIG_ASF_SEC4x
 	struct caam_ctx ctx;
 #else
@@ -477,6 +478,9 @@ typedef struct inSA_s {
 					algorithm is set */
 	dma_addr_t	AuthKeyDmaAddr;
 	dma_addr_t	EncKeyDmaAddr;
+#endif
+#else
+	struct g_ipsec_la_sa_handle sa_handle;
 #endif
 #ifdef CONFIG_ASF_SEC4x
 	void (*prepareInDescriptor)(struct sk_buff *skb, void *pData,
@@ -673,6 +677,7 @@ typedef struct outSA_s {
 	SAParams_t SAParams;
 	SPDOutParams_t SPDParams;
 	/* Hardware option AES_CBC or BOTH or only encryption etc. */
+#ifndef CONFIG_ASF_VIO_IPSEC
 #ifdef CONFIG_ASF_SEC4x
 	struct caam_ctx ctx;
 #else
@@ -685,6 +690,9 @@ typedef struct outSA_s {
 					algorithm is set */
 	dma_addr_t	AuthKeyDmaAddr;
 	dma_addr_t	EncKeyDmaAddr;
+#endif
+#else
+	struct g_ipsec_la_sa_handle sa_handle;
 #endif
 	struct {
 		bool bIpVersion; /* 0-IPv4 or 1-IPv6 */

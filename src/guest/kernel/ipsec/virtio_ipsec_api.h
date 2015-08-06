@@ -112,7 +112,7 @@ enum g_ipsec_la_sa_flags
 };
 
 enum g_ipsec_la_inb_sa_flags {
-	NF_IPSEC_INB_SA_PROPOGATE_ECN =1
+	G_IPSEC_INB_SA_PROPOGATE_ECN =1
 	/* When set, ENC from outer tunnel packet will be propagated to the decrypted packet */
 };
 
@@ -157,7 +157,7 @@ struct g_ipsec_la_open_inargs {
 	uint16_t device_id;   /* Device Id for IPsec */
 	char *accl_name; /* Accelerator name */
 	char *app_identity;	/* Application identity */
-	g_ipsec_la_instance_broken_cbk_fn,	/* Callback function to be called when the connection to the underlying accelerator is broken */
+	g_ipsec_la_instance_broken_cbk_fn cb_fn;	/* Callback function to be called when the connection to the underlying accelerator is broken */
 	void *cb_arg;	/* Callback argument */
 	int32_t cb_arg_len;	/* Callback argument length */
 };
@@ -323,11 +323,15 @@ struct g_ipsec_la_notification_hooks
 
 struct g_ipsec_la_sa_crypto_params
 {
+	u8  reserved:4,
+		bAuth:1,
+		bEncrypt:1;	
 	enum g_ipsec_la_auth_alg auth_algo;
 	uint8_t *auth_key; /* Authentication Key */
 	uint32_t auth_key_len_bits; /* Key Length in bits */
 	enum g_ipsec_la_cipher_alg cipher_algo;	/* Cipher Algorithm */
 	uint8_t *cipher_key;	/* Cipher Key */
+	u32 block_size; /* block size */
 	uint32_t cipher_key_len_bits;	/* Cipher Key Length in bits */
 	uint8_t *iv;	/* IV Length */
 	uint8_t iv_len_bits; 	/* IV length in bits */
@@ -600,7 +604,7 @@ int32_t g_ipsec_la_packet_encap(
 	struct g_ipsec_la_resp_args resp
 	);
 
-int32_t	g_ipsec_la_decap_packet(
+int32_t	g_ipsec_la_packet_decap(
 	struct g_ipsec_la_handle *handle, 
 	struct g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_handle *handle, /* SA Handle */

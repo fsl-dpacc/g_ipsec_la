@@ -3252,7 +3252,7 @@ int32 virt_ipsec_add_to_available_list(struct v_ipsec_device *v_ipsec_dev)
 }
 
 
-int32 g_ipsec_la_avail_devices_get_num(u32 *);
+
 
 int32 virt_ipsec_avail_devices_get_num(uint32 *nr_devices) 
 {
@@ -3260,34 +3260,7 @@ int32 virt_ipsec_avail_devices_get_num(uint32 *nr_devices)
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
-int32 g_ipsec_la_avail_devices_get_info(
-	struct g_ipsec_la_avail_devices_get_inargs *in,
-	struct g_ipsec_la_avail_devices_get_outargs *out);
 
-struct g_ipsec_la_avail_devices_get_inargs 
-{
-	uint32 num_devices;
-	char *last_device_read; /* NULL if this is the first time this call is invoked;
-	                                           * Subsequent calls will have a valid value here */											  
-};
-
-struct g_ipsec_la_device_info
-{
-	char device_name[IPSEC_IFNAMESIZ];
-	u8 mode; /* Shared or Available */
-	u32 num_apps; /* If shared */
-};
-
-struct g_ipsec_la_avail_devices_get_outargs
-{
-	uint32 num_devices; /* filled by API */
-	/* Array of pointers, where each points to
-	                                      device specific information */
-	struct g_ipsec_la_device_info *dev_info; 						
-	char *last_device_read; /* Send a value that the application can use and
-	                                           * invoke for the next set of devices */
-	bool b_more_devices;
-};
 
 int32 virt_ipsec_avail_devices_get_info(
 	struct g_ipsec_la_avail_devices_get_inargs *in,
