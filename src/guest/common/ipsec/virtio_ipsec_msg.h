@@ -290,6 +290,7 @@ struct virtio_ipsec_udp_encapsulation_info
 }__attribute__((packed));
 
 /* Structure to hold variable length data; Can be used for sending keys etc. */
+
 struct virtio_ipsec_lv
 {
 	u32 len;	/* Length of following data */
@@ -298,26 +299,36 @@ struct virtio_ipsec_lv
 
 struct virtio_ipsec_esp_info
 {
-	u8 ulflags reserved:4,
+	u8  reserved:4,
 		bAuth:1,
 		bEncrypt:1;	
 	u8 cipher_algo;	/* Encryption algorithm as defined in Get Features */
 	u8   IV_Size;
 	u8 block_size;
-	struct virtio_ipsec_lv cipher_key;
 	u32 counter_initial; /* Initial counter for counter mode algorithms */
 	u8 auth_algo;	/* Authentication Algorithm as defined in Get Features */
-	struct virtio_ipsec_lv auth_key;
 	u8   AHPaddingLen; 
 	u8 ICVSize;
-	struct virtio_ipsec_lv nounce_IV;
 }__attribute__((packed));
+
+
+struct cipher_key {
+	struct virtio_ipsec_lv lv;
+}__attribute__((packed));
+
+struct auth_key {
+	struct virtio_ipsec_lv lv;
+}__attribute__((packed));;
+
+struct nounce_iv {
+	struct virtio_ipsec_lv lv;
+}__attribute__((packed));
+
 
 struct virtio_ipsec_ah_info
 {
 	u8 authAlgo;
-	struct virtio_ipsec_lv auth_key;
- 	u8   AHPaddingLen; 
+	 u8   AHPaddingLen; 
 	u8 ICVSize;
 }__attribute__((packed));
 

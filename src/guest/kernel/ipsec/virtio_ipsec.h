@@ -128,6 +128,8 @@ struct virt_ipsec_info {
 	    notify_lifetime:1,
 	    notify_seqnum_overflow:1,
 	    notify_seqnum_periodic:1;
+	/* affinity hint */
+	bool affinity_hint_set;
 };
 
 int32 safe_ref_array_setup(

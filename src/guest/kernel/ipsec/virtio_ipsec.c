@@ -1500,7 +1500,7 @@ void handle_response(struct virt_ipsec_cmd_ctx *cmd_ctx,
 /* Interface Functions */
 
 
-static void _control_job_done(struct virt_ipsec_info *virt_dev)
+static void _ipsec_control_job_done(struct virt_ipsec_info *virt_dev)
 {
 	unsigned int len;
 	struct virt_ipsec_cmd_ctx *cmd_ctx;
@@ -3141,6 +3141,7 @@ static inline int virt_ipsec_data_decap(
 		b_lock = TRUE;
 	}
 
+	
 	decap_q_pair = &(ipsec_dev->data_q_pair[vars->data_q_pair_index_cur_decap]);
 	vars->data_q_pair_index_cur_decap++;
 	if ((vars->data_q_pair_index_cur_decap - vars->data_q_pair_index_start_decap) >
@@ -3149,7 +3150,7 @@ static inline int virt_ipsec_data_decap(
 	}
 	
 	d_ctx = decap_q_pair->decap_ctx;
-	hdr = d_ctx->hdr[decap_q_pair->encap_q_index_cur];
+	hdr = d_ctx->hdr[decap_q_pair->decap_q_index_cur];
 	decap_q_pair->decap_q_index_cur++;
 	if (decap_q_pair->decap_q_index_cur == decap_q_pair->decap_q_index_max)
 		decap_q_pair->decap_q_index_cur = 0;
@@ -3185,7 +3186,7 @@ static inline int virt_ipsec_data_decap(
 	{
 		sg_set_buf(&decap_q_pair.encap_q.sg[i], out_data[i].buffer, out_data[i].length);
 	}
-	return(virtqueue_add(decap_q_pair.encap.q.vq, &(decap_q_pair.encap_q.sg[0]),
+	return(virtqueue_add(decap_q_pair.decap_q.vq, &(decap_q_pair.decap_q.sg[0]),
 		(num_sg*2)+1, num_sg, num_sg, data_ctx, GFP_ATOMIC));
 
 api_err:
@@ -3376,6 +3377,7 @@ static int virtipsec_alloc_queues(struct virt_ipsec_info *ipsec_dev)
 		goto err_data_q_pair;
 
 
+
 	/* Allocate the init_q-max_q for each VCPU if data_q_per_vcpu is enabled otherwise one global */
 	if (ipsec_dev->num_q_pairs_per_vcpu) {
 		ipsec_dev->per_cpu_vars = __alloc_percpu(
@@ -3392,8 +3394,6 @@ static int virtipsec_alloc_queues(struct virt_ipsec_info *ipsec_dev)
 			goto err_data_q_per_cpu_vars;
 	}
 
-	
-	
 	/* allocate the control queue */
 	ipsec_dev->control_queue = kmalloc(sizeof(struct ipsec_queue), GFP_KERNEL);
 	if (!ipsec_dev->control_queue)
@@ -3500,7 +3500,7 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 		for_each_online_cpu(cpu) {
 			vars = per_cpu_ptr(ipsec_dev->data_q_per_cpu_vars, cpu);
 			vars->data_q_pair_index_start_decap = i;
-			vars->data_q_pair_index_cur_encap = i;
+			vars->data_q_pair_index_cur_decap = i;
 			vars->data_q_pair_index_start_encap = i;
 			vars->data_q_pair_index_cur_encap = i;
 			i+= (ipsec_dev->num_q_pairs_per_vcpu);
@@ -3555,7 +3555,7 @@ err_find:
 	return -1;
 }        
 
-static int init_vqs(struct virtipsec_info *vi)
+static int init_vqs(struct virt_ipsec_info *vi)
 {
 	int ret;
 
@@ -3574,6 +3574,50 @@ static int init_vqs(struct virtipsec_info *vi)
 
 	return 0;
 }
+
+static void free_unused_bufs(struct virt_ipsec_info *ipsec_dev)
+{
+	void *buf;
+	int i;
+	int max_queue_pairs = vi->num_queues/2;
+	struct virtqueue *vq;
+	struct virt_ipsec_data_ctx *d_ctx;
+	struct virt_ipsec_cmd_ctx *cmd_ctx;
+
+	for (i = 0; i < max_queue_pairs; i++) {
+		 vq = ipsec_dev->data_q_pair[i].decap_q.vq; 
+		while (d_ctx = virtqueue_detach_unused_buf(vq)){
+			/* Call the callback function for the buffer */
+			d_ctx->cb_fn(d_ctx->cb_arg,...);
+			}
+		vq = ipsec_dev->data_q_pair[i].encap_q.vq;
+		while (d_ctx = virtqueue_detach_unused_buf(vq)){
+			d_ctx->cb_fn(d_ctx->cb_arg,...);
+		}
+	}
+	/* Control queue */
+	vq = cmd->cvq.vq;
+	while (cmd_ctx = virtqueue_detach_unused_buf(vq)) {
+		if (cmd_ctx->b_wait == TRUE) {
+			cmd_ctx->cond = TRUE;
+			wakeup_interruptible(&cmd_ctx->waitq);
+		}
+		else { /* Call the callback function */
+			cmd_ctx->cb_fn(cmd_ctx->cb_arg, cmd_ctx->cb_arg_len, ...);
+		}
+			
+	}
+
+	/* Optional notification queue */
+	if (ipsec_dev->b_notify_queue)	 {
+		vq = ipsec_dev->nvq.vq;
+
+		while (buf = virtqueue_detach_unused_buf(vq)) {
+			}
+	}
+			
+}
+
 
 /*
  * Function: virtio_ipsec_probe
@@ -3687,7 +3731,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 		ipsec_dev->wesp = 1;	
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SA_BUNDLES)
 		ipsec_dev->sa_bundles = 1;
-    if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_UPD_ENCAPSULATION)
+    if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_UDP_ENCAPSULATION)
 		ipsec_dev->udp_encap=1;
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_TFC)
 		ipsec_dev->tfc = 1;
@@ -3739,7 +3783,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 		goto free_resource;
 
 	
-	INIT_WORK(ipsec_dev->c_work, _ipsec_control_jobs_done, (void *)(ipsec_dev));
+	INIT_WORK(ipsec_dev->c_work, _ipsec_control_job_done, (void *)(ipsec_dev));
 
 	/* Add to available list */
 	if (virt_ipsec_add_to_available_list(v_ipsec_dev)! = VIRTIO_IPSEC_SUCCESS) 
@@ -3757,70 +3801,157 @@ free_resource:
 	/* TBD */
 }
 
+static void virt_ipsec_clean_affinity(
+	struct virt_ipsec_info *ipsec_dev, 
+	long hcpu)
+{
+	int i;
+	int max_queue_pairs = ipsec_dev->num_queues/2;
+
+	if (ipsec_dev->affinity_hint_set) {
+		for (i = 0; i < max_queue_pairs; i++) {
+			virtqueue_set_affinity(ipsec_dev->data_q_pair[i].decap_q.vq, -1);
+			virtqueue_set_affinity(ipsec_dev->data_q_pair[i].encap_q.vq, -1);
+		}
+
+		ipsec_dev->affinity_hint_set = false;
+	}
+}
+
+static void virt_ipsec_set_affinity(
+	struct virt_ipsec_info *ipsec_dev)
+{
+	int i;
+	int cpu;
+	struct ipsec_data_q_pair *q_pair;
+	struct data_q_per_cpu_vars *vars;
+
+	/* In multiqueue mode, when the number of cpu is equal to the number of
+	 * queue pairs, we let the queue pairs to be private to one cpu by
+	 * setting the affinity hint to eliminate the contention.
+	 */
+	if (!ipsec_dev->num_q_pairs_per_vcpu) {
+		virt_ipsec_clean_affinity(vi, -1);
+		return;
+	}
+
+	for_each_online_cpu(cpu) {
+		vars = per_cpu_ptr(ipsec_dev->data_q_per_cpu_vars, cpu);
+		
+		for (i= vars->data_q_pair_index_start_decap; 
+			i < 
+			(vars->data_q_pair_index_start_decap + ipsec_dev->num_q_pairs_per_vcpu);
+			i++) {
+				virtqueue_set_affinity(
+					ipsec_dev->data_q_pair[i].decap_q.vq, cpu);
+					
+			}
+		for (i=vars->data_q_pair_index_start_encap;
+			i < 
+			(vars->data_q_pair_index_start_encap + ipsec_dev->num_q_pairs_per_vcpu);
+			i++) {
+				virtqueue_set_affinity(
+					ipsec_dev->data_q_pair[i].encap_q.vq, cpu);
+				}
+			}
+
+	ipsec_dev->affinity_hint_set = true;
+}
+
+static int virt_ipsec_cpu_callback(struct notifier_block *nfb,
+			        unsigned long action, void *hcpu)
+{
+	struct virt_ipsec_info *ipsec_dev = 
+		container_of(nfb, struct virt_ipsec_info, nb);
+
+	switch(action & ~CPU_TASKS_FROZEN) {
+	case CPU_ONLINE:
+	case CPU_DOWN_FAILED:
+	case CPU_DEAD:
+		virt_ipsec_set_affinity(ipsec_dev);
+		break;
+	case CPU_DOWN_PREPARE:
+		virt_ipsec_clean_affinity(ipsec_dev, (long)hcpu);
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static void virt_ipsec_free_queues(
+	struct virt_ipsec_info *ipsec_dev)
+{
+	int i;
+
+	/* Free the memory */
+	kfree(ipsec_dev->control_queue);
+	if (ipsec_dev->num_q_pairs_per_vcpu != 0)
+		free_percpu(ipsec_dev->per_cpu_vars);
+	else
+		kfree(ipsec_dev->per_cpu_vars);
+
+	kfree(ipsec_dev->data_q_pair);
+	
+	if (ipsec_dev->b_notify_queue)
+		kfree(ipsec_dev->notify_queue);
+	
+}
+
+static void virt_ipsec_del_vqs(struct virt_ipsec_info 
+	* ipsec_dev)
+{
+	struct virtio_device *vdev = vi->vdev;
+
+	virt_ipsec_clean_affinity(vi, -1);
+
+	vdev->config->del_vqs(vdev);
+
+	virt_ipsec_free_queues(vi);
+}
+
+static void virt_ipsec_remove_vq_common(struct virtnet_info *vi)
+{
+	vi->vdev->config->reset(vi->vdev);
+
+	/* Free unused buffers in both send and recv, if any. */
+	free_unused_bufs(vi);
+
+	virt_ipsec_del_vqs(vi);
+}
+
 static void virt_ipsec_remove(struct virtio_device *vdev)
 {
+	int ii;
+	
 	struct virt_ipsec_info *vi = vdev->priv;
 	/* TBD */
 
 	unregister_hotcpu_notifier(&vi->nb);
 
 	/* Make sure no work handler is accessing the device. */
-	flush_work(&vi->config_work);
+	flush_work(&vi->c_work);
 
-	/* remove device from device list */
+	for (ii=0; ii < NR_CPUS; ii++)
+	{
+		tasklet_disable(&_decap_queue_cleanup[ii]);
+		_decap_done(ii);
+		tasklet_disable(&_encap_queue_cleanup[ii]);
+		_encap_done(ii);
+	}
 
-	/* remove queues */
-	/* remove_vq_common(vi); */
+    virt_ipsec_remove_vq_common(vi);
+
+	/* reenable tasklets for other devices */
+	for(ii=0; ii < NR_CPUS; ii++)
+	{
+		tasklet_enable(&_decap_queue_cleanup[ii]);
+		tasklet_enable(&_encap_queue_cleanup[ii]);
+	}
 
 	/* cleanup: TBD */
 }
-
-#ifdef CONFIG_PM_SLEEP
-static int virt_ipsec_freeze(struct virtio_device *vdev)
-{
-	struct virt_ipsec_info *vi = vdev->priv;
-	int i;
-
-	/* TBD */
-	unregister_hotcpu_notifier(&vi->nb);
-
-	/* Make sure no work handler is accessing the device */
-	flush_work(&vi->config_work);
-
-	/* TBD */
-	remove_vq_ipsec(vi);
-
-	return 0;
-}
-
-static int virt_ipsec_restore(struct virtio_device *vdev)
-{
-	struct virt_ipsec_info *vi = vdev->priv;
-	int err, i;
-
-	/* TBD */
-
-	err = init_vqs(vi);
-	if (err)
-		return err;
-
-	virtio_device_ready(vdev);
-
-	netif_device_attach(vi->dev);
-
-	rtnl_lock();
-	/* TDB */
-	virtipsec_set_queues(vi, vi->curr_queue_pairs);
-	rtnl_unlock();
-
-	err = register_hotcpu_notifier(&vi->nb);
-	if (err)
-		return err;
-
-	return 0;
-}
-#endif
-
 
 /*
 The PCI feature bits part of Virtio Standards will be supported. 
