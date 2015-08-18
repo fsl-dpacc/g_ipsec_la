@@ -73,7 +73,7 @@ void asf_virtio_interface_init()
 		buf += sizeof(struct g_ipsec_la_device_info);
 		out.dev_info[ii]->device_name = buf;
 		buf += IPSEC_IFNAMESIZ;
-		}
+		}
 	
 	ret = g_ipsec_la_avail_devices_get_info(in, out);
 
@@ -568,6 +568,11 @@ int32 secfp_deleteInSAVIpsec(inSA_t *pSA)
 
 /* TBD */
 /* handle callback function */
+void secfp_encap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs)
+{
+	secfp_outComplete(NULL,NULL, cb_arg,(int)(outargs));
+}
+
 
 int32 secfp_vio_encap(outSA_t *pSA,
 	 struct sk_buff *skb, 
@@ -576,6 +581,7 @@ int32 secfp_vio_encap(outSA_t *pSA,
 		    void *areq)
 {
 	struct g_ipsec_la_data in_data, out_data;
+	struct g_ipsec_la_resp_args resp;
 	/* Need to handle resp callback function */
 
 	/* to check this out */
@@ -585,6 +591,9 @@ int32 secfp_vio_encap(outSA_t *pSA,
 	out_data.buffer = skb->data;
 	out_data.length = skb->len;
 
+	resp.cb_fn = secfp_encap_complete_cbk;
+	resp.cb_arg = areq;
+	resp.cb_arg_len = sizeof(areq);
 
 		
 	ret = g_ipsec_la_packet_encap(_asf_device.handle,G_IPSEC_LA_CTRL_FLAG_ASYNC,
@@ -594,6 +603,11 @@ int32 secfp_vio_encap(outSA_t *pSA,
 }
 
 
+void secfp_decap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs)
+{
+	secfp_inComplete(NULL, NULL, cb_arg,(int)(outargs));
+}
+
 int32 secfp_vio_decap(inSA_t *pSA,
 		struct sk_buff *skb,
 		void (*cbk)(struct device *dev, u32 *desc,
@@ -601,6 +615,7 @@ int32 secfp_vio_decap(inSA_t *pSA,
 			void *areq)
 {
 	struct g_ipsec_la_data in_data, out_data;
+	struct g_ipsec_la_resp_args resp;
 	/* Need to handle resp callback function */
 
 	/* to check this out */
@@ -611,7 +626,10 @@ int32 secfp_vio_decap(inSA_t *pSA,
 	out_data.length = skb->len;
 
 
-		
+	resp.cb_fn = secfp_decap_complete_cbk;
+	resp.cb_arg = areq;
+	resp.cb_arg_len = sizeof(areq);
+	
 	ret = g_ipsec_la_packet_decap(_asf_device.handle,G_IPSEC_LA_CTRL_FLAG_ASYNC,
 		pSA->handle ,1,in_data, out_data,resp);
 }

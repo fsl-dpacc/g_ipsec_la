@@ -106,7 +106,7 @@ struct virt_ipsec_info {
 	/* Following Out+Inq will be percpu variables */
 	struct ipsec_data_q_pair *data_q_pair; /* decap-q, encap-q, decap-hdrs, encap-hdrs */
 	struct virtio_ipsec_ctrl_hdr *ctrl_hdr; /* Array of allocated control headers */
-	struct data_q_per_cpu_vars *data_q_per_cpu_vars;
+	struct data_q_per_cpu_vars *dq_per_cpu_vars;
 	struct work_struct c_work;
 	u8 vcpu_scaling; /* Number of queues required to achieve vcpu scaling */
 	u8 device_scaling; /* Number of queues required to achieve device scaling */
