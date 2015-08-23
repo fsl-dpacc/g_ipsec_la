@@ -2,8 +2,6 @@
 #define _VIRTIO_IPSEC_H
 
 
-#define VIRTIO_IPSEC_VENDOR_ID 	0x1AF4
-#define VIRTIO_IPSEC_DEVICE_ID  0x1054
 
 /* The feature bitmap for virtio net */
 
@@ -28,21 +26,24 @@ VIRTIO_RING_F_EVENT_IDX		29
 #define VIRTIO_IPSEC_F_SEQNUM_OVERFLOW_NOTIFY	12 	/* Device notifies when sequence number is about to overflow, so that Guest can initiate new SA negotiation */
 #define VIRTIO_IPSEC_F_SEQNUM_PERIODIC_NOTIFY   13	/* Periodic update of Sequence number from device to guest */
 
+/*
 #define SAFE_REF_ARRAY_GET_DATA(table, index) (table->base[index].data)
 #define SAFE_REF_ARRAY_GET_MAGIC_NUM(table, index) (table->base[index].magic_num)
+*/
+
 
 
 
 struct safe_ref_array_node {
-	void data;
+	void *data;
 	u32 magic_num;
 	struct safe_ref_array_node *next;
 	struct safe_ref_array_node *prev;
 };
 
 struct safe_ref_array {
-	safe_ref_array_node *head;
-	safe_ref_array_node *base;
+	struct safe_ref_array_node *head;
+	struct safe_ref_array_node *base;
 	u32 num_entries;
 	u32 num_cur_entries;
 	u32 magic_num;
@@ -50,8 +51,17 @@ struct safe_ref_array {
 	bool b_lock;
 };
 
-#define IPSEC_IFNAMESIZ	16	
 
+static inline void *safe_ref_get_data(struct safe_ref_array *table, u32 index)
+{
+	return table->base[index].data;
+}
+
+static inline unsigned int safe_ref_get_magic_num (struct safe_ref_array *table, 
+	u32 index)
+{
+	return table->base[index].magic_num;
+}
 struct data_q_per_cpu_vars {
 		u8 data_q_pair_index_start_decap;
 		u8 data_q_pair_index_cur_decap;
@@ -78,7 +88,8 @@ struct virt_ipsec_data_ctx
 {
 	struct list_head link;
 	struct virtio_ipsec_hdr hdr;
-	struct g_ipsec_la_resp_cbfn	cb_fn;
+	g_ipsec_la_resp_cbfn	cb_fn;
+	struct v_ipsec_sa_hndl sa_hndl;
 	u8 cb_arg[VIRTIO_IPSEC_MAX_CB_ARG_SIZE];
 	u32 cb_arg_len;
 };
@@ -132,127 +143,7 @@ struct virt_ipsec_info {
 	bool affinity_hint_set;
 };
 
-int32 safe_ref_array_setup(
-	safe_ref_array *table,  
-	u32 num_entries, bool b_lock)
-{
-	int ii;
-	safe_ref_array_node *node,
 
-	node = kzalloc((sizeof(safe_ref_array_node)*num_entries), GFP_KERNEL);
-
-	if (NULL == node) {
-		return -ENOMEM;
-	}
-	table->head = table->base = node;
-	table->num_entries = num_entries;
-	table->magic_num= 1;
-
-	/* Set up first node */
-	node[0].prev = NULL;
-	node[0].next = &(node[1]);
-	for (ii = 1; ii < (num_entries-1); ii++) {
-		node[ii].next = &(node[ii+1]);
-		node[ii+1].prev = &(node[ii]);
-	}
-	/* Set up Last node */
-	node[ii].next = NULL;
-	node[ii].prev = &(node[ii-1]);
-
-	if (b_lock)
-		spin_lock_init(&table->tblLock);
-
-	table->num_cur_entries = 0;
-	table->bLock = b_lock;
-
-	return 0;
-}
-
-void safe_ref_array_cleanup(safe_ref_array *table)
-{
-	if (table->base)
-		kfree(table->base);
-}
-
-/* ptrArray_add */
-static inline unsigned int safe_ref_array_add(
-	safe_ref_array *table,  void *data)
-{
-	unsigned int index;
-	safe_ref_array_node *node;
-
-	if (table->b_lock)
-		spin_lock_bh(&table->lock);
-
-	if (table->num_cur_entries >= table->num_entries)	{
-		spin_unlock_bh(&table->lock);
-		index = table->num_entries;
-		goto err_max_table;
-	}
-	
-	if (table->head == NULL) {
-		node = NULL;
-	} else {
-		node = table->head;
-		table->head = table->head->pNext;
-		if (table->head)
-			table->head->prev = NULL;
-
-	}
-	table->num_cur_entries++;
-	if (table->bLock)
-		spin_unlock_bh(&table->lock);
-
-	if (node) {
-		node->next = NULL;
-		node->prev = NULL;
-		node->data = data;
-		table->ulMagicNum = (table->ulMagicNum + 1) == 0 ? 1 :  table->ulMagicNum+1;
-		node->ulMagicNum = table->ulMagicNum;
-		index = node - table->pBase;
-		smp_wmb();
-	} else {
-		index= table->num_entries +1;
-	}
-
-#ifdef POINTER_ARRAY_DEBUG
-	printk("safe_ref_array_add : Index =%d, pNode = 0x%x, pTable->pBase = 0x%x\r\n", ulIndex, pNode, pTable->pBase);
-#endif
-
-err_max_table:
-	return index;
-}
-
-
-
-static inline void safe_ref_array_node_delete(
-	safe_ref_array *table, 
-	u32 index,
-	void (*func)(struct rcu_head *rcu))
-{
-	safe_ref_array_node *node = &(table->base[index]);
-	struct rcu_head *data;
-
-
-	node->magic_num= 0;
-	data = node->data;
-	node->data = NULL;
-
-	smp_wmb();
-
-	if (table->bLock)
-		spin_lock_bh(&table->tblLock);
-	if (table->head) {
-		node->next = table->head;
-		table->head->prev = node;
-	}
-	table->head = node;
-	if (table->b_lock)
-		spin_unlock_bh(&table->lock);
-
-	if (func != NULL)
-		call_rcu(data,  func);
-}
 
 
 

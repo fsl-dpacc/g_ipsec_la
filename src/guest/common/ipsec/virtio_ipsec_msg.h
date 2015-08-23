@@ -125,8 +125,6 @@ enum virtio_ipsec_ctrl_command_class_sa
 	/* Update Inbound SA */
 	VIRTIO_IPSEC_CTRL_READ_IN_SA,	
 	/* Read Inbound SA */
-	VIRTIO_IPSEC_CTRL_READ_IN_SA,		
-	/* Read In SA */
 	VIRTIO_IPSEC_CTRL_READ_FIRST_N_IN_SAs,	
 	/* Read first N SAs */
 	VIRTIO_IPSEC_CTRL_READ_NEXT_N_IN_SAs,	
@@ -173,7 +171,7 @@ enum virtio_ipsec_cipher_alogithms {
 enum virtio_ipsec_endian
 {
  	VIRTIO_IPSEC_GUEST_LITTLE_ENDIAN=1,
-	VIRTIO_IPSEC_GUEST_BIG_ENDIAN	2
+	VIRTIO_IPSEC_GUEST_BIG_ENDIAN
 };
 
 enum virtio_ipsec_qos_dscp_setting
@@ -197,24 +195,16 @@ enum virtio_ipsec_transforms
 	VIRTIO_IPSEC_ESP_WITH_AUTH
 };
 
+/* AVS: Confirm data structure */
 struct virtio_ipsec_config {
 	__u16 max_queue_pairs_r;
 	__u8  device_scaling_r;
 	__u8  guest_scaling_r;
 	__u16 reserved;
-	__u8  reserved;
+	__u8  reserved1;
 	__u8  guest_scaling_w;
 }__attribute__((packed));
 
-struct virtio_ipsec_ctrl_hdr {
-	u8 class;  /* class of command */
-	u8 cmd;   /* actual command */
-}__attribute__((packed)); 
-
-struct virtio_ipsec_ctrl_result {
-	u8 result;	/* VIRTIO_IPSEC_OK or VIRTIO_IPSEC_ERR */
-	u8 result_data; /* error information if any */
-}__attribute__((packed)); 
 
 
 struct virtio_ipsec_ctrl_capabilities {	
@@ -537,13 +527,13 @@ enum virtio_ipsec_notify_event
 {
 	VIRTIO_IPSEC_NOTIFY_LIFETIME_KB_EXPIRY=1,
 	VIRTIO_IPSEC_NOTIFY_BEFORE_SEQNUM_OVERFLOW,
-	VIRTIO_IPSEC_NOTIFY_ SEQNUM_PERIODIC
-}
+	VIRTIO_IPSEC_NOTIFY_SEQNUM_PERIODIC
+};
 
 
 struct virtio_ipsec_notify_lifetime_kb_expiry
 {
-	struct enum virtio_ipsec_notify_event; 
+	enum virtio_ipsec_notify_event notify_event; 
         /* Value = VIRTIO_IPSEC_NOTIFY_LIFETIME_KB_EXPIRY */
 	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /* Optional Group Handle */
@@ -554,7 +544,7 @@ struct virtio_ipsec_notify_lifetime_kb_expiry
 
 struct virtio_ipsec_notify_before_seqnum_overflow
 {
-	struct enum virtio_ipsec_notify_event; 
+	enum virtio_ipsec_notify_event notify_event; 
         /* Value = VIRTIO_IPSEC_NOTIFY_BEFORE_SEQNUM_OVERFLOW  */
 	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /* Optional Group Handle */
@@ -564,7 +554,7 @@ struct virtio_ipsec_notify_before_seqnum_overflow
 
 struct virtio_ipsec_notify_periodic_seqnum
 {
-	struct enum virtio_ipsec_notify_event; 
+	enum virtio_ipsec_notify_event notify_event; 
         /* Value = VIRTIO_IPSEC_NOTIFY_SEQNUM_PERIODIC */
 	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /* Optional Group Handle */
@@ -584,7 +574,7 @@ struct virtio_ipsec_hdr {
 	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /* Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
-	u32 sa_context_handle[[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /* IPsec SA  Context */
+	u32 sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /* IPsec SA  Context */
 	u32 num_input_buffers; /* Number of input buffers  */
 	u32 input_data_length;  /* Length of input data */
 	u32 num_output_buffers; /* Number of output buffers */
@@ -595,4 +585,67 @@ struct virtio_ipsec_hdr {
 	u32 error_code;
 }__attribute__((packed));;
 
+int32_t virt_ipsec_msg_release(u8 *);
+int32_t virt_ipsec_msg_sa_flush(
+	u32 *g_hw_handle, u32 *len,
+	u8 **msg, u8 **result_ptr);
+int32_t virt_ipsec_msg_sa_mod
+		(u32 *g_hw_handle, u32 *sa_handle, 
+		const struct g_ipsec_la_sa_mod_inargs *in,
+		 u32 *len, u8 **msg, u8 **result_ptr);
+int32_t virt_ipsec_msg_sa_del(
+		u32 *g_hw_handle, u32 *sa_handle, 
+		const struct g_ipsec_la_sa_del_inargs *in, 
+		u32 *len,
+		u8 **msg, u8 **result_ptr);
+int32_t virt_ipsec_msg_sa_add( u32 *handle, 
+	 const struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
+	 u8 **result_ptr);
+int32_t virt_ipsec_msg_group_delete(
+	u32 *group_handle,
+	u32 *len, u8 **msg,
+	u8 **result_ptr);
+int32_t virt_ipsec_msg_get_capabilities(
+	u32 *len, u8 **msg, u8 **result_ptr);
+
+int32_t virt_ipsec_msg_sa_flush_parse_result(
+		u32 *msg, u32 len,
+		struct virtio_ipsec_ctrl_result **result,
+		u8 *result_ptr);
+
+int32_t virt_ipsec_msg_sa_add_parse_result(
+        u8 *msg, u32 len,
+        struct virtio_ipsec_ctrl_result **result,
+        struct virtio_ipsec_create_sa **v_ipsec_create_sa,
+        u8 *result_ptr);
+
+
+int32_t virt_ipsec_msg_sa_del_parse_result(
+	u8 *msg, u32 len,
+	struct virtio_ipsec_ctrl_result **result,
+	u8 *result_ptr); 
+
+int32_t virt_ipsec_msg_sa_mod_parse_result(
+		u8 *msg, u32 len,
+		struct virtio_ipsec_ctrl_result **result,
+		u8 *result_ptr);
+
+int32_t virt_ipsec_msg_capabilities_get_parse_result(
+	u8 *msg, u32 len,
+	struct virtio_ipsec_ctrl_result **result,
+	struct virtio_ipsec_ctrl_capabilities **caps, 
+	u8 *result_ptr);
+
+int32_t virt_ipsec_msg_group_add_parse_result(
+	u8 *msg, u32 len, 
+	struct virtio_ipsec_ctrl_result **result,
+	struct virtio_ipsec_group_add **group,
+	u8 *result_ptr);
+
+int32_t virt_ipsec_msg_delete_group_parse_result(
+	u8 *msg, u32 len,
+	struct virtio_ipsec_ctrl_result **result, u8 *result_ptr);
+
+int32_t  virt_ipsec_msg_group_add(
+	u32 *len, u8 **msg, u8 **result_ptr);
 #endif

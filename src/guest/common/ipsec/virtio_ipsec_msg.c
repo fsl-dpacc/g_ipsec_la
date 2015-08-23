@@ -70,8 +70,6 @@ enum virtio_ipsec_ctrl_command_class_sa
 	/* Update Inbound SA */
 	VIRTIO_IPSEC_CTRL_READ_IN_SA,	
 	/* Read Inbound SA */
-	VIRTIO_IPSEC_CTRL_READ_IN_SA,		
-	/* Read In SA */
 	VIRTIO_IPSEC_CTRL_READ_FIRST_N_IN_SAs,	
 	/* Read first N SAs */
 	VIRTIO_IPSEC_CTRL_READ_NEXT_N_IN_SAs,	
@@ -97,7 +95,7 @@ struct virtio_ipsec_create_group{
 
 /* allocate and populate the message */
 int32  virt_ipsec_msg_group_add(
-	u32 *len, u8 **msg, u8 *result_ptr)
+	u32 *len, u8 **msg, u8 **result_ptr)
 {
 	struct virtio_ipsec_ctrl_hdr *hdr;
 	//struct virtio_ipsec_ctrl_result *result;
@@ -120,7 +118,7 @@ int32  virt_ipsec_msg_group_add(
 	hdr->class = VIRTIO_IPSEC_CTRL_SA;
 	hdr->cmd = VIRTIO_IPSEC_CTRL_ADD_GROUP;
 
-	result_ptr = (u8 *)hdr+ 
+	*result_ptr = (u8 *)hdr+ 
 		sizeof(struct virtio_ipsec_group_add)+
 		sizeof(struct virtio_ipsec_ctrl_hdr);
 
@@ -143,7 +141,7 @@ int32 virt_ipsec_msg_delete_group_parse_result(
 int32 virt_ipsec_msg_group_add_parse_result(
 	u8 *msg, u32 len, 
 	struct virtio_ipsec_ctrl_result **result,
-	struct virtio_ipsec_group_add *group
+	struct virtio_ipsec_group_add **group
 	u8 *result_ptr)
 {
 	if (len < (sizeof(struct virtio_ipsec_ctrl_hdr)+sizeof(struct virtio_ipsec_ctrl_result)
@@ -154,7 +152,7 @@ int32 virt_ipsec_msg_group_add_parse_result(
 		return VIRTIO_IPSEC_FAILURE;
 	}
 
-	group = (struct virtio_ipsec_group_add *)(
+	*group = (struct virtio_ipsec_group_add *)(
 		(u8 *)(msg) + sizeof(struct virtio_ipsec_ctrl_hdr));
 
 	*result = (struct virtio_ipsec_ctrl_result *)result_ptr;
@@ -165,12 +163,12 @@ int32 virt_ipsec_msg_group_add_parse_result(
 int32 virt_ipsec_msg_sa_add_parse_result(
 	u8 *msg, u32 len,
 	struct virtio_ipsec_ctrl_result **result,
-	struct virtio_ipsec_create_sa * v_ipsec_create_sa,
+	struct virtio_ipsec_create_sa **v_ipsec_create_sa,
 	u8 *result_ptr)
 {
 	
 
-	v_ipsec_create_sa = (struct virtio_ipsec_create_sa *)(
+	*v_ipsec_create_sa = (struct virtio_ipsec_create_sa *)(
 		(u8 *)(msg)+sizeof(struct virtio_ipsec_ctrl_hdr));
 	*result = (struct virtio_ipsec_ctrl_result *)(result_ptr);
 	
@@ -179,46 +177,47 @@ int32 virt_ipsec_msg_sa_add_parse_result(
 
 int32_t virt_ipsec_msg_capabilities_get_parse_result(
 	u8 *msg, u32 len,
-	struct virtio_ipsec_ctrl_result *result,
-	struct virtio_ipsec_ctrl_capabilities *caps, 
+	struct virtio_ipsec_ctrl_result **result,
+	struct virtio_ipsec_ctrl_capabilities **caps, 
 	u8 *result_ptr)
 {
-	result = (struct virtio_ipsec_ctrl_result *result);
+	*result = (struct virtio_ipsec_ctrl_result *)result_ptr;
 
-	caps = msg + sizeof(struct virtio_ipsec_ctrl_hdr);
+	*caps = msg + sizeof(struct virtio_ipsec_ctrl_hdr);
 
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
 
 int32 virt_ipsec_msg_sa_mod_parse_result(
-		u8 *msg, u32 *len,
-		struct virtio_ipsec_ctrl_result *result,
+		u8 *msg, u32 len,
+		struct virtio_ipsec_ctrl_result **result,
 		u8 *result_ptr)
 {
-	result = (struct virtio_ipsec_ctrl_result *)result_ptr;
+	*result = (struct virtio_ipsec_ctrl_result *)result_ptr;
 
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
 int32 virt_ipsec_msg_sa_del_parse_result(
-	u8 *msg, u32 *len,
-	struct virtio_ipsec_ctrl_result *result,
+	u8 *msg, u32 len,
+	struct virtio_ipsec_ctrl_result **result,
 	u8 *result_ptr) 
 {
-	result = (struct virtio_ipsec_ctrl_result *)result_ptr;
+	*result = (struct virtio_ipsec_ctrl_result *)result_ptr;
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
 int32 virt_ipsec_msg_sa_flush_parse_result(
-		u32 *msg, u32 *len,
-		struct virtio_ipsec_ctrl_result *result,
-		u8 *result_ptr) {
+	u32 *msg, u32 *len,
+	struct virtio_ipsec_ctrl_result **result,
+	u8 *result_ptr) {
 		
-		result = (struct virtio_ipsec_ctrl_result *)result_ptr;
-		return VIRTIO_IPSEC_SUCCESS;
+	*result = (struct virtio_ipsec_ctrl_result *)result_ptr;
+	return VIRTIO_IPSEC_SUCCESS;
 }	
 	
+
 
 int32_t virt_ipsec_msg_get_capabilities(
 	u32 *len, u8 **msg, u8 **result_ptr)
@@ -256,7 +255,7 @@ int32_t virt_ipsec_msg_get_capabilities(
 	sizeof(struct virtio_ipsec_ctrl_result))
 	
 int32 virt_ipsec_msg_group_delete(
-	u8 *group_handle,
+	u32 *group_handle,
 	u32 *len, uint8 **msg,
 	uint8 **result_ptr)
 {
@@ -308,7 +307,7 @@ int32 virt_ipsec_msg_group_delete(
 	 
 
 int32 virt_ipsec_msg_sa_add( u32 *handle, 
-	 struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
+	 const struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
 	 u8 **result_ptr)
 {
 	struct virtio_ipsec_ctrl_hdr *hdr;
@@ -641,10 +640,10 @@ int32 virt_ipsec_msg_sa_add( u32 *handle,
 	
 
 int32 virt_ipsec_msg_sa_del(
-		u8 *g_hw_handle, u8 *sa_handle, 
-		struct g_ipsec_la_sa_del_inargs *in, 
+		u32 *g_hw_handle, u32 *sa_handle, 
+		const struct g_ipsec_la_sa_del_inargs *in, 
 		u32 *len,
-		u8 **msg, u8 *result_ptr)
+		u8 **msg, u8 **result_ptr)
 {
 	u8 *buf, *buf_start;
 	struct virtio_ipsec_ctrl_hdr *hdr;
@@ -696,8 +695,8 @@ int32 virt_ipsec_msg_sa_del(
 	sizeof(struct virtio_ipsec_update_sa_antireplay)
 	
 int32 virt_ipsec_msg_sa_mod
-		(u8 *g_hw_handle, u8 *sa_handle, 
-		struct g_ipsec_la_sa_mod_inargs *in,
+		(u32 *g_hw_handle, u32 *sa_handle, 
+		const struct g_ipsec_la_sa_mod_inargs *in,
 		 u32 *len ,u8 **msg, u8 **result_ptr)
 {
 	u8 *buf, *buf_start;
@@ -806,7 +805,7 @@ int32 virt_ipsec_msg_sa_mod
 	sizeof(struct virtio_ipsec_flush_sa)
 	
 int32 virt_ipsec_msg_sa_flush(
-	u8 *g_hw_handle, u32 *len,
+	u32 *g_hw_handle, u32 *len,
 	u8 **msg, u8 **result_ptr)
 {
 	u8 *buf, *buf_start;

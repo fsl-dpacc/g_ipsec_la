@@ -20,8 +20,16 @@
 #define _VIRTIO_IPSEC_API_H
 
 /* To be added into virtio header file */
+#define VIRTIO_IPSEC_VENDOR_ID 0x1AF4
+#define VIRTIO_IPSEC_DEVICE_ID  0x1054
+
+#if 0
+/* Need to check this out AVS */
 #define VIRTIO_IPSEC_VENDOR_ID	20
 #define VIRTIO_IPSEC_DEVICE_ID  0xffffffff
+#endif
+
+#define G_IPSEC_LA_GROUP_INVALID	0xffffffff
 
 
 /* Macros */
@@ -29,6 +37,7 @@
 #define G_IPSEC_LA_SUCCESS VIRTIO_IPSEC_SUCCESS
 
 
+#define IPSEC_IFNAMESIZ	16	
 
 #define G_IPSEC_LA_HANDLE_SIZE	8
 #define G_IPSEC_LA_GROUP_HANDLE_SIZE	8
@@ -141,7 +150,7 @@ struct g_ipsec_la_group_create_inargs {
 
 struct g_ipsec_la_group_create_outargs {
 	int32_t result;
-	uint32_t g_ipsec_la_group_handle[G_IPSEC_LA_GROUP_HANDLE_SIZE]; /* Group handle holder */
+	u8 group_handle[G_IPSEC_LA_GROUP_HANDLE_SIZE]; /* Group handle holder */
 };
 
 
@@ -149,6 +158,10 @@ struct g_ipsec_la_group_delete_outargs {
 	int32_t result;
 };
 
+struct g_ipsec_la_handle {
+	u8 handle[G_IPSEC_LA_HANDLE_SIZE]; /* Accelerator handle */
+	u8 group_handle[G_IPSEC_LA_GROUP_HANDLE_SIZE]; /* Group handle */
+};
 
 typedef void (*g_ipsec_la_instance_broken_cbk_fn)(struct g_ipsec_la_handle *handle,  void *cb_arg);
 
@@ -164,24 +177,22 @@ struct g_ipsec_la_open_inargs {
 
 
 struct g_ipsec_la_open_outargs{
-	 g_ipsec_la_handle *handle; /* handle */
+	 struct g_ipsec_la_handle *handle; /* handle */
 };
 
+typedef void(*g_ipsec_la_resp_cbfn) (void *cb_arg, int32_t cb_arg_len, void *outargs);
+
 struct g_ipsec_la_resp_args {
-	struct g_ipsec_la_resp_cbfn	cb_fn;	
+	g_ipsec_la_resp_cbfn cb_fn;	
 	/* Callback function if  ASYNC flag is chosen */
 	void *cb_arg;
 	int32_t cb_arg_len; /* Callback argument length */
 };  
 
-struct g_ipsec_la_handle {
-	uint32_t handle[G_IPSEC_LA_HANDLE_SIZE]; /* Accelerator handle */
-	uint32_t group_handle[G_IPSEC_LA_GROUP_HANDLE_SIZE]; /* Group handle */
-};
 
 struct g_ipsec_la_avail_devices_get_inargs 
 {
-	uint32 num_devices;
+	uint32_t num_devices;
 	char *last_device_read; /* NULL if this is the first time this call is invoked;
 	                                           * Subsequent calls will have a valid value here */											  
 };
@@ -195,7 +206,7 @@ struct g_ipsec_la_device_info
 
 struct g_ipsec_la_avail_devices_get_outargs
 {
-	uint32 num_devices; /* filled by API */
+	uint32_t num_devices; /* filled by API */
 	/* Array of pointers, where each points to
 	    device specific information */
 	struct g_ipsec_la_device_info *dev_info; 						
@@ -207,7 +218,7 @@ struct g_ipsec_la_avail_devices_get_outargs
 
 
 struct g_ipsec_la_sa_handle {
-	uint32_t ipsec_sa_handle[G_IPSEC_LA_SA_HANDLE_SIZE];
+	u8 ipsec_sa_handle[G_IPSEC_LA_SA_HANDLE_SIZE];
 };
 
 
@@ -217,7 +228,7 @@ struct g_ipsec_la_auth_algo_cap {
 			sha1:1,
 			sha2:1,
 			aes_xcbc:1,
-			none:1
+			none:1,
 			des:1;
 };			 
 
@@ -263,15 +274,15 @@ struct g_ipsec_la_capabilities {
 
 struct g_ipsec_la_cap_get_outargs
 {
+	int32_t result; /* Non zero value: Success, Otherwise failure */
 	struct g_ipsec_la_capabilities caps; /* Capabilities */
 };
 
 
-typedef void(*g_ipsec_la_resp_cbfn) (void *cb_arg, int32_t cb_arg_len, void *outargs);
 
 
 struct g_ipsec_seq_number_notification {
-	struct g_ipsec_la_handle *handle,
+	struct g_ipsec_la_handle *handle;
 	struct g_ipsec_la_sa_handle *sa_handle; /* SA Handle */
 	uint32_t seq_num;	/* Low Sequence Number */
 	uint32_t hi_seq_num; /* High Sequence Number */
@@ -392,7 +403,7 @@ struct g_ipsec_la_sa
 	   }inb;
 	};
 	struct g_ipsec_la_sa_crypto_params crypto_params;  /* Crypto Parameters */
-	struct g_ipsec_la_ipcomp_info;	/* IP Compression Information */
+	struct g_ipsec_la_ipcomp_info ipcomp_info;	/* IP Compression Information */
 	uint32_t soft_kilobytes_limit;
 	uint32_t hard_kilobytes_limit;
 	uint32_t seqnum_interval;
@@ -409,7 +420,7 @@ struct g_ipsec_la_sa_add_inargs
 
 struct g_ipsec_la_sa_add_outargs {
 	int32_t result; /* Non zero value: Success, Otherwise failure */
-	struct g_ipsec_la_handle handle;
+	struct g_ipsec_la_sa_handle handle;
 };
 
 enum g_ipsec_la_sa_modify_flags {
@@ -458,7 +469,7 @@ struct g_ipsec_la_sa_del_outargs
 
 struct g_ipsec_la_sa_flush_outargs {
 	int32_t result; /* 0 for success */
-}
+};
 
 
 struct g_ipsec_la_sa_stats {
@@ -486,7 +497,7 @@ struct g_ipsec_la_sa_get_outargs {
 	int32_t result; /* 0: Success: Non zero value: Error code indicating failure */
 	struct g_ipsec_la_sa *sa_params; /* An array of sa_params[] to hold ‘num_sas’ information */
 	struct g_ipsec_la_sa_stats *stats; /* An array of stats[] to hold the statistics */
-	g_ipsec_la_sa_handle ** handle; /* handle returned to be used for subsequent Get Next N call */
+	struct g_ipsec_la_sa_handle ** handle; /* handle returned to be used for subsequent Get Next N call */
 };
 
 
@@ -508,9 +519,9 @@ struct g_ipsec_la_data {
 /* Function prototypes */
 int32_t g_ipsec_la_get_api_version(char *version);
 
-int32 g_ipsec_la_avail_devices_get_num(uint32 *nr_devices); 
+int32_t g_ipsec_la_avail_devices_get_num(uint32_t *nr_devices); 
 
-int32 g_ipsec_la_avail_devices_get_info(
+int32_t g_ipsec_la_avail_devices_get_info(
 	struct g_ipsec_la_avail_devices_get_inargs *in,
 	struct g_ipsec_la_avail_devices_get_outargs *out);
 
@@ -522,63 +533,63 @@ int32_t g_ipsec_la_open(
 
 
 int32_t g_ipsec_la_group_create(
-	struct g_ipsec_la_handle *handle; 
+	struct g_ipsec_la_handle *handle, 
 	/* handle should be valid one */
 	struct g_ipsec_la_group_create_inargs *in,
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_group_create_outargs *out,
-	struct g_ipsec_la_resp_args resp);
+	struct g_ipsec_la_resp_args *resp);
 
  
 int32_t g_ipsec_la_delete_group(
 	struct g_ipsec_la_handle *handle,
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_group_delete_outargs *out,
-	struct g_ipsec_la_resp_args resp
+	struct g_ipsec_la_resp_args *resp
 	);
 
 int32_t g_ipsec_la_close(struct g_ipsec_la_handle *handle);
 
 int32_t g_ipsec_la_capabilities_get(
 	struct g_ipsec_la_handle *handle,
-	struct g_ipsec_la_control_flags flags, 
+	enum g_ipsec_la_control_flags flags, 
 	struct g_ipsec_la_cap_get_outargs *out, 
 	struct g_ipsec_la_resp_args *resp);
 
 int32_t g_ipsec_la_notification_hooks_register(
-	struct g_ipsec_la_handle handle, /* Accelerator Handle */
+	struct g_ipsec_la_handle *handle, /* Accelerator Handle */
 	const struct g_ipsec_la_notification_hooks *in
 );
 
 int32_t g_ipsec_la_notifications_hook_deregister( 
-	struct g_ipsec_la_handle ,  /* Accelerator Handle */ );
+	struct g_ipsec_la_handle  *handle/* Accelerator Handle */ );
 
 int32_t g_ipsec_la_sa_add(
 	 	struct g_ipsec_la_handle *handle,
         const struct g_ipsec_la_sa_add_inargs *in,
         enum g_ipsec_la_control_flags flags,
         struct g_ipsec_la_sa_add_outargs *out,
-        struct g_ipsec_la_resp_args resp);
+        struct g_ipsec_la_resp_args *resp);
 
 int32_t g_ipsec_la_sa_mod(
 	 struct g_ipsec_la_handle *handle, /* Accelerator Handle */
 	 const struct g_ipsec_la_sa_mod_inargs *in, /* Input Arguments */
-     g_ipsec_la_control_flags flags, /* Control flags: sync/async, response required or not */
-     struct g_ipsec_la_sa_mod_outargs *out, /* Output Arguments */
-     struct g_api_resp_args resp /* Response data structure with callback function information and arguments with ASYNC response is requested */
+     	 enum g_ipsec_la_control_flags flags, /* Control flags: sync/async, response required or not */
+     	 struct g_ipsec_la_sa_mod_outargs *out, /* Output Arguments */
+         struct g_ipsec_la_resp_args *resp /* Response data structure with callback function information and arguments with ASYNC response is requested */
         );
 
 int32_t g_ipsec_la_sa_del(
 	struct g_ipsec_la_handle *handle,
        const struct g_ipsec_la_sa_del_inargs *in,
-       g_ipsec_la_control_flags flags,
+       enum g_ipsec_la_control_flags flags,
        struct g_ipsec_la_sa_del_outargs *out,
-       struct g_ipsec_la_resp_args resp);
+       struct g_ipsec_la_resp_args *resp);
 
 
 int32_t g_ipsec_la_sa_flush(
 	struct g_ipsec_la_handle *handle,
-	g_ipsec_la_control_flags flags,
+	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_flush_outargs *out,
 	struct g_ipsec_la_resp_args *resp);
 
@@ -586,32 +597,32 @@ int32_t g_ipsec_la_sa_flush(
 int32_t g_ipsec_la_sa_get(
 	struct g_ipsec_la_handle *handle,
 	const struct g_ipsec_la_sa_get_inargs *in,
-	g_ipsec_la_control_flags flags,
-	struct g_ipsec_la_get_outargs *out,
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_get_outargs *out,
 	struct g_ipsec_la_resp_args *resp);
 
 
 
 int32_t g_ipsec_la_packet_encap(
 	struct g_ipsec_la_handle *handle, 
-	struct g_ipsec_la_control_flags flags,
-	struct g_ipsec_la_sa_handle *handle, /* SA Handle */
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
 	uint32_t num_sg_elem, /* num of Scatter Gather elements */
 	struct g_ipsec_la_data in_data[],
 	/* Array of data blocks */
 	struct g_ipsec_la_data out_data[], 
 	/* Array of output data blocks */
-	struct g_ipsec_la_resp_args resp
+	struct g_ipsec_la_resp_args *resp
 	);
 
 int32_t	g_ipsec_la_packet_decap(
 	struct g_ipsec_la_handle *handle, 
-	struct g_ipsec_la_control_flags flags,
-	struct g_ipsec_la_sa_handle *handle, /* SA Handle */
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
 	uint32_t num_sg_elem,	/* number of Scatter Gather elements */
 	struct g_ipsec_la_data in_data[],/* Array of data blocks */
 	struct g_ipsec_la_data out_data[], /* Array of out data blocks*/
-	struct g_ipsec_la_resp_args resp
+	struct g_ipsec_la_resp_args *resp
 	);
 
 
