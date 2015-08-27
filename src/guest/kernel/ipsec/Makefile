@@ -1,13 +1,15 @@
-SRC	:= virtio_ipsec.c ../../common/ipsec/virtio_ipsec_msg.c
+MODULE_NAME = virtio_ipsec_module
+
+SRC := virtio_ipsec.c ../../common/ipsec/virtio_ipsec_msg.c
+KDIR	:= ~subha/ls2-linux
+
+$(MODULE_NAME)-objs = $(SRC:.c=.o)
+
+obj-m := $(MODULE_NAME).o
 PWD	:= $(shell pwd)
 
-KDIR	:= ~subha/ls2-linux
+
 G_IPSEC_LA := /home/subha/g_ipsec_la/src/guest/kernel/ipsec/
-
-
-#(MODULE_NAME)-objs = $(SRC:.c=.o)
-
-obj-m +=virtio_ipsec.o
 
 
 EXTRA_CFLAGS	:= -I$(PWD) -I$(G_IPSEC_LA)/  -I$(G_IPSEC_LA)../../common/ipsec -v

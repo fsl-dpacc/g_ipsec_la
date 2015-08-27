@@ -2,6 +2,7 @@
 #define _VIRTIO_IPSEC_H
 
 
+#define VIRTIO_ID_IPSEC	20
 
 /* The feature bitmap for virtio net */
 
@@ -77,11 +78,17 @@ struct ipsec_queue {
 	/* Fragments + linear part + virtio header: Need to Check : AVS */
 	struct scatterlist sg[MAX_SKB_FRAGS+2];
 
+	struct scatterlist *sg_ptr[MAX_SKB_FRAGS+2];
+
 	/* Copied from virtio-net: need to check: AVS */
 	char name[40];
 };
 
 
+
+struct v_ipsec_sa_hndl {
+	u8 handle[G_IPSEC_LA_SA_HANDLE_SIZE];
+};
 
 #define VIRTIO_IPSEC_MAX_CB_ARG_SIZE 64
 struct virt_ipsec_data_ctx
@@ -123,6 +130,7 @@ struct virt_ipsec_info {
 	u8 device_scaling; /* Number of queues required to achieve device scaling */
 	u8 num_q_pairs_per_vcpu; /* Number of queues per vcpu */
 	u8 num_queues; /* Number of queues (Encap + decap) across vpcus */
+	bool b_notify_q;
 	spinlock_t	      lock;
 	u32 
 	    sg_buffer:1,
@@ -135,12 +143,14 @@ struct virt_ipsec_info {
 	    ecn:1,
             df:1,
             anti_replay:1,
-	    v6_support:1,
+	    ipv6_support:1,
 	    notify_lifetime:1,
 	    notify_seqnum_overflow:1,
 	    notify_seqnum_periodic:1;
 	/* affinity hint */
 	bool affinity_hint_set;
+	/* CPU hot plug notifier */
+	struct notifier_block nb;
 };
 
 

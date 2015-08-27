@@ -196,14 +196,44 @@ enum virtio_ipsec_transforms
 };
 
 /* AVS: Confirm data structure */
+/*
 struct virtio_ipsec_config {
 	__u16 max_queue_pairs_r;
 	__u8  device_scaling_r;
 	__u8  guest_scaling_r;
 	__u16 reserved;
-	__u8  reserved1;
+	__u8  reserved_1;
 	__u8  guest_scaling_w;
 }__attribute__((packed));
+*/
+
+struct virtio_ipsec_version_info {
+	__u32 version_len;
+}__attribute__((packed));
+
+struct virtio_ipsec_version {
+	__u32 version;
+}__attribute__((packed));
+
+struct virtio_ipsec_config {
+	__u32 dev_queue_reg;
+	__u32 host_queue_reg;
+}__attribute__((packed));
+
+#define MAX_Q_PAIR_MASK	0xffff
+#define DEVICE_SCALING_MASK 0xff0000
+#define GUEST_SCALING_MASK 0xff000000
+
+#define VIRTIO_IPSEC_MAX_QUEUES_READ(p)	\
+	((p & MAX_Q_PAIR_MASK) *2)
+
+#define VIRTIO_IPSEC_DEVICE_SCALING_READ(p)	\
+	((p & DEVICE_SCALING_MASK) >> 16)
+
+
+#define VIRTIO_IPSEC_MAX_VQS (4096 -2)
+#define VIRTIO_IPSEC_MIN_VQS 2
+
 
 
 
@@ -255,9 +285,9 @@ struct virtio_ipsec_tunnel_hdr_ipv4
 {
 	u32 saddr;	/* Source Address */
 	u32 daddr;	/* Destination Address */
-	u8 bHandleDscp:2,
-	   bHandleDf:2,
-	   bPropogateECN:1;
+	u8 b_handle_dscp:2,
+	   b_handle_df:2,
+	   b_propogate_ECN:1;
 	u8 Dscp;	/* Value to be used for creating DSCP field in Outer IP header */
 }__attribute__((packed));
 
@@ -265,7 +295,7 @@ struct virtio_ipsec_tunnel_hdr_ipv6
 {
 	u32 s_addr[4];	/* Source Address */
 	u32 d_addr[4];	/* Destination Address */
-	u8 bHandleDscp:1,
+	u8 b_handle_dscp:2,
 	   b_handle_df:2,
 	   b_propogate_ECN:1;
 	u8 dscp;	/* Value to be used for creating DSCP field in Outer IP header */
@@ -609,7 +639,7 @@ int32_t virt_ipsec_msg_get_capabilities(
 	u32 *len, u8 **msg, u8 **result_ptr);
 
 int32_t virt_ipsec_msg_sa_flush_parse_result(
-		u32 *msg, u32 len,
+		u8 *msg, u32 len,
 		struct virtio_ipsec_ctrl_result **result,
 		u8 *result_ptr);
 
