@@ -23,11 +23,6 @@
 #define VIRTIO_IPSEC_VENDOR_ID 0x1AF4
 #define VIRTIO_IPSEC_DEVICE_ID  0x1054
 
-#if 0
-/* Need to check this out AVS */
-#define VIRTIO_IPSEC_VENDOR_ID	20
-#define VIRTIO_IPSEC_DEVICE_ID  0xffffffff
-#endif
 
 #define G_IPSEC_LA_GROUP_INVALID	0xffffffff
 
@@ -497,7 +492,7 @@ struct g_ipsec_la_sa_stats {
 
 struct g_ipsec_la_sa_get_outargs {
 	int32_t result; /* 0: Success: Non zero value: Error code indicating failure */
-	struct g_ipsec_la_sa *sa_params; /* An array of sa_params[] to hold ‘num_sas’ information */
+	struct g_ipsec_la_sa *sa_params; /* An array of sa_params[] to hold num_sas information */
 	struct g_ipsec_la_sa_stats *stats; /* An array of stats[] to hold the statistics */
 	struct g_ipsec_la_sa_handle ** handle; /* handle returned to be used for subsequent Get Next N call */
 };
