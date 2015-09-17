@@ -61,6 +61,19 @@
 #define ASFCTRL_LINUX_VERSION		"0.0.1"
 #define ASFCTRL_LINUX_DESC 		"ASF Linux Integration Driver"
 
+#ifndef AS_FP_PROCEED
+#define AS_FP_PROCEED   1
+#endif
+
+#ifndef ASF_FP_STOLEN
+#define AS_FP_STOLEN    2
+#endif
+
+typedef int (*devfp_hook_t)(struct sk_buff *skb, struct net_device *dev);
+extern int devfp_register_rx_hook_veth(devfp_hook_t );
+extern int devfp_register_tx_hook_veth(devfp_hook_t );
+extern int devfp_deregister_rx_hook_veth(void);
+extern int devfp_deregister_tx_hook_veth(void);
 /** \brief	Driver's license
  *  \details	Dual BSD/GPL
  *  \ingroup	Linux_module
@@ -670,10 +683,20 @@ int asfctrl_dev_fp_tx_hook(struct sk_buff *skb, struct net_device *dev)
 
 		memcpy(cmd.u.l2blob.l2blob, skb->data, cmd.u.l2blob.l2blobLen);
 #ifdef CONFIG_VLAN_8021Q
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 		if (vlan_tx_tag_present(skb)) {
+#else
+		if (skb_vlan_tag_present(skb)) {
+#endif
 			cmd.u.l2blob.bTxVlan = 1;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 			cmd.u.l2blob.usTxVlanId = (vlan_tx_tag_get(skb)
 							| VLAN_TAG_PRESENT);
+#else
+			cmd.u.l2blob.usTxVlanId = (skb_vlan_tag_get(skb)
+							| VLAN_TAG_PRESENT);
+#endif
 		} else
 #endif
 			cmd.u.l2blob.bTxVlan = 0;
@@ -769,7 +792,6 @@ ASF_void_t  asfctrl_fnVSGMappingNotFound(
 }
 
 
-
 static int __init asfctrl_init(void)
 {
 	int ret;
@@ -818,8 +840,9 @@ static int __init asfctrl_init(void)
 	printk(KERN_INFO "Subha: before devfp_register_hook\r\n");
 	printk(KERN_INFO "Subha: devfp_register_hook called asf_ffp_devfp_rx=0x%x, asfctrl_dev_fp_tx_hook=%x\r\n",
 		(int)asf_ffp_devfp_rx, (int)asfctrl_dev_fp_tx_hook);
-	devfp_register_hook(asf_ffp_devfp_rx, asfctrl_dev_fp_tx_hook);
-	devfp_register_hook_veth(asf_ffp_devfp_rx_veth, NULL);
+	//devfp_register_hook(asf_ffp_devfp_rx, asfctrl_dev_fp_tx_hook);
+	devfp_register_rx_hook_veth(asf_ffp_devfp_rx_veth);
+	devfp_register_tx_hook_veth(asfctrl_dev_fp_tx_hook);
 	route_hook_fn_register(&asfctrl_l3_route_flush);
 #ifdef ASF_IPV6_FP_SUPPORT
 	ipv6_route_hook_fn_register(&asfctrl_l3_ipv6_route_flush);
@@ -857,8 +880,9 @@ static void __exit asfctrl_exit(void)
 #ifdef ASF_IPV6_FP_SUPPORT
 	ipv6_route_hook_fn_register(NULL);
 #endif
-	devfp_register_hook(NULL, NULL);
-	devfp_register_hook_veth(NULL, NULL);
+	//devfp_register_hook(NULL, NULL);
+	devfp_deregister_rx_hook_veth();
+	devfp_deregister_tx_hook_veth();
 	unregister_netdevice_notifier(&asfctrl_dev_notifier);
 	asfctrl_netns_vsg_deinit();
 

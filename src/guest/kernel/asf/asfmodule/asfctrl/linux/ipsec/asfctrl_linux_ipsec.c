@@ -721,10 +721,19 @@ ASF_void_t asfctrl_ipsec_l2blob_update_fn(struct sk_buff *skb,
 	memcpy(&pSAData->u.l2blob.l2blob, skb->data,
 			pSAData->u.l2blob.ulL2BlobLen);
 #ifdef CONFIG_VLAN_8021Q
-	if (vlan_tx_tag_present(skb)) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
+		if (vlan_tx_tag_present(skb)) {
+#else
+		if (skb_vlan_tag_present(skb)) {
+#endif
 		pSAData->u.l2blob.bTxVlan = 1;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 		pSAData->u.l2blob.usTxVlanId = (vlan_tx_tag_get(skb)
 							| VLAN_TAG_PRESENT);
+#else
+		pSAData->u.l2blob.usTxVlanId = (skb_vlan_tag_get(skb)
+							| VLAN_TAG_PRESENT);
+#endif
 	} else
 #endif
 		pSAData->u.l2blob.bTxVlan = 0;

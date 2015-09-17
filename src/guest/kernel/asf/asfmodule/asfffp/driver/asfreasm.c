@@ -51,6 +51,9 @@ extern ASFFFPGlobalStats_t *asf_gstats;
 #define asf_reasm_debug(fmt, args...)
 #endif
 
+#ifndef EXTRA_HEADROOM
+#define EXTRA_HEADROOM	128
+#endif
 
 #ifndef CONFIG_DPA
 #define TRUE 1

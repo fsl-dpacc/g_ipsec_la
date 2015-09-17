@@ -281,7 +281,7 @@
 	descPtr->j_extent = extent;\
 }
 
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 #define SECFP_SET_DESC_PTR(a, b, c, d)\
 	(a).len = cpu_to_be16(b);\
 	(a).ptr = cpu_to_be32(lower_32_bits((c)));\
@@ -465,9 +465,10 @@ typedef struct inSA_s {
 	unsigned int ulSPDSelSetIndexMagicNum;
 	unsigned int ulLastSeqNum;
 	unsigned int *pWinBitMap;
-#ifndef CONFIG_ASF_VIO_IPSEC
 #ifdef CONFIG_ASF_SEC4x
 	struct caam_ctx ctx;
+#elif defined(CONFIG_VIRTIO)
+	u8 sa_handle[8];
 #else
 	int chan;
 	int last_chan[2];
@@ -478,9 +479,6 @@ typedef struct inSA_s {
 					algorithm is set */
 	dma_addr_t	AuthKeyDmaAddr;
 	dma_addr_t	EncKeyDmaAddr;
-#endif
-#else
-	struct g_ipsec_la_sa_handle sa_handle;
 #endif
 #ifdef CONFIG_ASF_SEC4x
 	void (*prepareInDescriptor)(struct sk_buff *skb, void *pData,
@@ -494,7 +492,7 @@ typedef struct inSA_s {
 				void *descriptor, unsigned int ulOptionIndex);
 #endif
 	void (*inCompleteWithFrags)(struct device *dev,
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 			struct talitos_desc *desc,
 			void *context, int err);
 #else
@@ -503,7 +501,7 @@ typedef struct inSA_s {
 #endif
 
 	void (*inComplete)(struct device *dev,
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		struct talitos_desc *desc,
 		void *context, int err
 #else
@@ -677,9 +675,10 @@ typedef struct outSA_s {
 	SAParams_t SAParams;
 	SPDOutParams_t SPDParams;
 	/* Hardware option AES_CBC or BOTH or only encryption etc. */
-#ifndef CONFIG_ASF_VIO_IPSEC
 #ifdef CONFIG_ASF_SEC4x
 	struct caam_ctx ctx;
+#elif defined(CONFIG_VIRTIO)
+	u8 sa_handle[8];
 #else
 	int chan;
 	int last_chan[2];
@@ -690,9 +689,6 @@ typedef struct outSA_s {
 					algorithm is set */
 	dma_addr_t	AuthKeyDmaAddr;
 	dma_addr_t	EncKeyDmaAddr;
-#endif
-#else
-	struct g_ipsec_la_sa_handle sa_handle;
 #endif
 	struct {
 		bool bIpVersion; /* 0-IPv4 or 1-IPv6 */
@@ -711,7 +707,7 @@ typedef struct outSA_s {
 	void (*prepareOutDescriptorWithFrags)(struct sk_buff *skb, void *pData,
 				void *descriptor, unsigned int ulOptionIndex);
 	void (*outComplete)(struct device *dev,
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		struct talitos_desc *desc,
 		void *context, int error
 #else
@@ -786,7 +782,7 @@ typedef struct secfp_sgEntry_s {
 #define MAX_IPSEC_RECYCLE_DESC		128
 #define ASF_MAX_IPSEC_RECYCLE_ICV	128
 
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 extern void secfp_outComplete(struct device *dev,
 				struct talitos_desc *desc,
 				void *context, int error);
@@ -817,16 +813,21 @@ extern void secfp_inComplete(struct device *dev,
 extern void secfp_inCompleteWithFrags(struct device *dev,
 		u32 *pdesc, u32 err, void *context);
 
+#ifdef CONFIG_ASF_SEC4x
 int secfp_buildProtocolDesc(struct caam_ctx *ctx, void *pSA, int dir);
+#endif
 
 extern int secfp_createInSACaamCtx(inSA_t *pSA);
 extern int secfp_createOutSACaamCtx(outSA_t *pSA);
 
+#ifdef CONFIG_ASF_SEC4x
 extern int secfp_prepareDecapShareDesc(struct caam_ctx *ctx, u32 *sh_desc,
 		inSA_t *pSA, bool keys_fit_inline);
 
 extern int secfp_prepareEncapShareDesc(struct caam_ctx *ctx, u32 *sh_desc,
 		outSA_t *pSA, bool keys_fit_inline);
+#endif
+
 extern void secfp_prepareAHOutDescriptor(struct sk_buff *skb, void *pData,
 				void *descriptor, unsigned int ulOptionIndex);
 void
@@ -852,9 +853,11 @@ int secfp_buildAHQMANSharedDesc(struct caam_ctx *ctx, u32 *sh_desc,
 		void *pSA, uint8_t bDir);
 
 #else
+#ifdef CONFIG_ASF_SEC4x
 extern int secfp_buildAHSharedDesc(
 		struct caam_ctx *ctx,
 		void *pSA, uint8_t bDiir);
+#endif
 
 extern int secfp_createAHInCaamCtx(inSA_t *pSA);
 
@@ -1060,7 +1063,7 @@ extern	void secfp_prepareInDescriptor(
 		void *pSA, void *, unsigned int);
 
 
-#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 extern void secfp_prepareInDescriptorWithFrags(
 		struct sk_buff *skb,
 		void *pData, void *, unsigned int);

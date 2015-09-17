@@ -131,9 +131,10 @@ extern unsigned long asf_ipv6_reasm_hash_list_size;
 extern unsigned long asf_ipv6_reasm_num_cbs;
 extern int ffp_ipv6_max_flows;
 extern int ffp_ipv6_hash_buckets;
-extern struct dst_ops asf_ipv4_dst_blackhole_ops;
 
 #endif
+extern struct dst_ops asf_ipv4_dst_blackhole_ops;
+int endian_var = 0;
 #ifdef ASF_QOS
 int asf_qos_enable;
 EXPORT_SYMBOL(asf_qos_enable);
@@ -174,6 +175,14 @@ MODULE_PARM_DESC(ffp_ipv6_hash_buckets,
 #endif
 
 #define ASF_DO_INC_CHECKSUM
+#ifndef ASF_FP_PROCEED
+#define AS_FP_PROCEED   1
+#endif
+
+#ifndef ASF_FP_STOLEN
+#define AS_FP_STOLEN    2
+#endif
+
 
 /* DPAA has Error Queue Handling .. so not required.
 #define TRAP_UNEXP_CONDITION
@@ -4914,8 +4923,7 @@ ASF_uint32_t ASFSetTcpCtrlParams(ASF_uint32_t ulVSGId,
 }
 EXPORT_SYMBOL(ASFSetTcpCtrlParams);
 
-int endian_var = 0;
-void endian_check()
+void endian_check(void)
 {
 	unsigned char test[2] = {1,0};
 	if (*(short *)test == 1)
@@ -5391,6 +5399,7 @@ static int ffp_cmd_delete_flows(ASF_uint32_t  ulVsgId, ASFFFPDeleteFlowsInfo_t *
 				if (flow2->pInacRefreshTmr) {
 					asfTimerStop(ASF_FFP_INAC_REFRESH_TMR_ID, 0, flow2->pInacRefreshTmr);
 				}
+#ifdef ASF_IPV6_FP_SUPPORT
 				if (bIPv6 == true)
 				{
 					if (flow2->ipv6.dst)
@@ -5406,6 +5415,7 @@ static int ffp_cmd_delete_flows(ASF_uint32_t  ulVsgId, ASFFFPDeleteFlowsInfo_t *
 					}
 				}
 				else
+#endif
 				{
 					if (flow2->ipv4.res.fi)
 					{
@@ -5444,6 +5454,7 @@ static int ffp_cmd_delete_flows(ASF_uint32_t  ulVsgId, ASFFFPDeleteFlowsInfo_t *
 			asfTimerStop(ASF_FFP_INAC_REFRESH_TMR_ID, 0, flow1->pInacRefreshTmr);
 		}
 #if 1
+#ifdef ASF_IPV6_FP_SUPPORT
 		if (bIPv6 == true)
 		{
 			if (flow1->ipv6.dst)
@@ -5460,6 +5471,7 @@ static int ffp_cmd_delete_flows(ASF_uint32_t  ulVsgId, ASFFFPDeleteFlowsInfo_t *
 
 		}
 		else
+#endif
 		{
 			if (flow1->ipv4.res.fi)
 			{
@@ -6090,11 +6102,13 @@ static void asf_ffp_destroy_all_flows(void)
 			asfTimerFreeNodeMemory(temp->pL2blobTmr);
 			asfTimerFreeNodeMemory(temp->pInacRefreshTmr);
 #if 1 /* Part of ARP/Routing changes Subha: 03/17 */
+#ifdef ASF_IPV6_FP_SUPPORT
 			if (flow->ipv6.dst)
 				dst_release(flow->ipv6.dst);
 
 			if (flow->ipv6.n)
 				neigh_release(flow->ipv6.n);
+#endif
 
 			if (flow->ipv4.res.fi)
 				fib_info_put(flow->ipv4.res.fi);

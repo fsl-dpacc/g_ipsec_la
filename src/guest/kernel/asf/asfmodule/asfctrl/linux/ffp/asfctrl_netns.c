@@ -363,7 +363,7 @@ ASF_int32_t asfctrl_netns_vsg_init(void)
 	return T_SUCCESS;
 }
 
-void asfctrl_netns_cleanup()
+void asfctrl_netns_cleanup(void)
 {
 	ASF_uint32_t ii;
 

@@ -24,26 +24,26 @@ full : export ASF_FEATURE_OPTION_FULL := y
 
 min :
 	make -w -C asfffp -f Makefile
-	make -w -C asffwd -f Makefile
+#	make -w -C asffwd -f Makefile
 ifeq ($(CONFIG_XFRM), y)
-#	make -w -C asfipsec -f Makefile
+	make -w -C asfipsec -f Makefile
 endif
 	make -w -C asfctrl -f Makefile
 	mkdir -p bin
 	mkdir -p bin/min
 	cp asfffp/driver/asf.ko asfctrl/linux/ffp/asfctrl.ko bin/min
-	cp asffwd/driver/asffwdcache.ko bin/min
-#	cp asfipsec/driver/asfipsec.ko asfctrl/linux/ipsec/asfctrl_ipsec.ko bin/min
+#	cp asffwd/driver/asffwdcache.ko bin/min
+	cp asfipsec/driver/asfipsec.ko asfctrl/linux/ipsec/asfctrl_ipsec.ko bin/min
 #	$(CROSS_COMPILE)strip --strip-unneeded bin/min/*.ko
 
 full :
 	mkdir -p bin
 	mkdir -p bin/full
 	make -w -C asfffp -f Makefile
-	make -w -C asffwd -f Makefile
+#	make -w -C asffwd -f Makefile
 
 ifeq ($(CONFIG_XFRM), y)
-#	make -w -C asfipsec -f Makefile
+	make -w -C asfipsec -f Makefile
 endif
 ifeq ($(CONFIG_ASF_EGRESS_QOS), y)
 	make -w -C asfqos -f Makefile
@@ -52,7 +52,7 @@ endif
 
 	cp asfffp/driver/asf.ko asfctrl/linux/ffp/asfctrl.ko bin/full
 	cp asffwd/driver/asffwdcache.ko bin/full
-#	cp asfipsec/driver/asfipsec.ko asfctrl/linux/ipsec/asfctrl_ipsec.ko bin/full
+	cp asfipsec/driver/asfipsec.ko asfctrl/linux/ipsec/asfctrl_ipsec.ko bin/full
 ifeq ($(CONFIG_ASF_EGRESS_QOS), y)
 	cp asfqos/driver/asfqos.ko asfctrl/linux/qos/asfctrl_qos.ko bin/full 2>/dev/null
 endif
@@ -64,7 +64,7 @@ clean:
 	make -w -C asfffp -f Makefile clean
 	make -w -C asffwd -f Makefile clean
 ifeq ($(CONFIG_XFRM), y)
-#	make -w -C asfipsec -f Makefile clean
+	make -w -C asfipsec -f Makefile clean
 endif
 ifeq ($(CONFIG_ASF_EGRESS_QOS), y)
 	make -w -C asfqos -f Makefile clean

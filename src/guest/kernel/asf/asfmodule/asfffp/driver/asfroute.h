@@ -58,7 +58,7 @@ static inline int asf_arp_resolve(
 	{
 		asf_debug("ipv4->n = 0x%p  Calling neigh_create\n", (ipv4->n));
 		neigh = __neigh_create(&arp_tbl, &nexthop,  ipv4->rth->dst.dev, false);
-		asf_debug("neigh_create returned 0x%x\n", (unsigned int)neigh);
+		asf_debug("neigh_create returned 0x%p\n", neigh);
 		if (!IS_ERR(neigh))
 		{
 			dst_hold(&(ipv4->rth->dst));
@@ -213,7 +213,11 @@ static inline u32 asf_fnhe_hashfun(__be32 daddr)
 
 static inline bool rt_is_expired(const struct rtable *rth)
 {
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 0, 0)
 	return rth->rt_genid != rt_genid(dev_net(rth->dst.dev));
+#else
+	return rth->rt_genid != rt_genid_ipv4(dev_net(rth->dst.dev));
+#endif
 }
 
 static inline bool asf_rt_cache_valid(const struct rtable *rt)
@@ -248,7 +252,7 @@ static inline int asf_route_resolve(ASFNetDevEntry_t *inputDev,
 
 	if (!(ret =asf_fib_lookup(inputDev, ipv4, abuf->nativeBuffer, tos)))
 	{
-		asf_debug("asf_fib_lookup completed res->fi = 0x%x\n", res->fi);
+		asf_debug("asf_fib_lookup completed res->fi = 0x%p\n", res->fi);
 		if (res->fi)
 		{
 			//struct fib_nh *nh;
@@ -303,7 +307,11 @@ static inline int asf_route_resolve(ASFNetDevEntry_t *inputDev,
 				asf_debug("asf_route_resolve: 6\n");
 
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 0, 0)
 				ipv4->rth->rt_genid = rt_genid(dev_net(ipv4->rth->dst.dev));
+#else
+				ipv4->rth->rt_genid = rt_genid_ipv4(dev_net(ipv4->rth->dst.dev));
+#endif
 				ipv4->rth->rt_flags = 0 ;
 				ipv4->rth->rt_type = res->type;
 				ipv4->rth->rt_is_input = 1;

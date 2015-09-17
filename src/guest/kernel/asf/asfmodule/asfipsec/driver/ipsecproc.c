@@ -648,6 +648,7 @@ static int display_secfp_proc_in_sa(char *page, char **start,
 
 }
 
+#if 0 /* Subha: 09/01 : Temp */
 int secfp_register_proc(void)
 {
 
@@ -706,6 +707,7 @@ int secfp_register_proc(void)
 
 	return 0;
 }
+#endif
 
 
 int secfp_unregister_proc(void)

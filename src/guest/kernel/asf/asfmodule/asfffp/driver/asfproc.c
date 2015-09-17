@@ -49,9 +49,13 @@
 #include "asfmpool.h"
 #include "asftmr.h"
 #include "asfroute.h"
+#ifdef ASF_IPV6_FP_SUPPORT
 #include "asfroute6.h"
+#endif
 #include "asfpvt.h"
+#ifdef ASF_IPV6_FP_SUPPORT
 #include "asfipv6pvt.h"
+#endif
 #include "asftcp.h"
 
 /*
@@ -1175,12 +1179,14 @@ static const struct file_operations proc_flow_stats_fops = {
 	.release = seq_release,
 };
 
+#ifdef ASF_IPV6_FP_SUPPORT
 static const struct file_operations proc_flow_ipv6_stats_fops = {
 	.open = display_asf_proc_flow_ipv6_stats_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
 };
+#endif
 
 #ifdef ASF_FFP_XTRA_STATS
 static const struct file_operations proc_xtra_flow_stats_fops = {

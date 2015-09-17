@@ -55,7 +55,9 @@ extern char *periodic_errmsg[];
 		smp_processor_id(), __LINE__, __func__, ##arg); \
 	} while (0)
 
+/* AVS: 09/01/15
 #define ASF_DEBUG
+*/
 
 #ifdef ASF_DEBUG
 #define asf_warn(fmt, arg...)  \

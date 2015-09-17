@@ -1456,11 +1456,12 @@ void ffp_sysfs_exit(void)
 
 
 /* Subha: 11/7 */
+
 void asfctrl_linux_register_ffp_byname(struct net *net)
 {
 	ASFCTRL_FUNC_ENTRY;
 
-	need_ipv4_conntrack();
+	need_conntrack();
 	if (nf_conntrack_register_notifier(net, &asfctrl_conntrack_event_nb) < 0) {
 		ASFCTRL_ERR("Register conntrack notifications failed for namespace 0x%p\n!", net);
 		return ;

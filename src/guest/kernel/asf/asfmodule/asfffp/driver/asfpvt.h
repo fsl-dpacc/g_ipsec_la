@@ -228,7 +228,9 @@ typedef struct ffp_flow_s {
 	union
 	{
 		struct _ipv4 ipv4;
+#ifdef ASF_IPV6_FP_SUPPORT
 		struct _ipv6 ipv6;
+#endif
 	};
 #endif
 	unsigned short	  tx_vlan_id; /*valid if bVLAN is 1*/

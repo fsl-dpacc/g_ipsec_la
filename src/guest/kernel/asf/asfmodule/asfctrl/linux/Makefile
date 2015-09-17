@@ -20,7 +20,7 @@ all: build
 build:
 	make -w -C ffp -f Makefile
 ifeq ($(CONFIG_XFRM), y)
-#	make -w -C ipsec -f Makefile
+	make -w -C ipsec -f Makefile
 endif
 ifeq ($(CONFIG_ASF_EGRESS_QOS), y)
 	make -w -C qos -f Makefile
@@ -29,7 +29,7 @@ endif
 .PHONY: clean
 clean:
 	make -w -C ffp -f Makefile clean
-#	make -w -C ipsec -f Makefile clean
+	make -w -C ipsec -f Makefile clean
 ifeq ($(CONFIG_ASF_EGRESS_QOS), y)
 	make -w -C qos -f Makefile clean
 endif

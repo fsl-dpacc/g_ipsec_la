@@ -22,8 +22,9 @@
 #include <linux/tcp.h>
 #include <linux/udp.h>
 
-extern devfp_register_rx_hook_veth(devfp_hook_t);
-extern devfp_register_tx_hook_veth(devfp_hook_t);
+typedef int (*fn_ptr)(struct sk_buff*, struct net_device*);
+extern int devfp_register_rx_hook_veth(fn_ptr);
+extern int devfp_register_tx_hook_veth(fn_ptr);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 32)
 #define asfAllocPerCpu(size)	__alloc_percpu(size, 4)
 #define asfFreePerCpu(ptr)	free_percpu(ptr)

@@ -17,6 +17,7 @@ export KBUILD_EXTRA_SYMBOLS
 #EXTRA_CFLAGS += -DASF_DEBUG
 #EXTRA_CFLAGS += -DASF_IPSEC_DEBUG
 #EXTRA_CFLAGS += -DASFIPSEC_DEBUG_FRAME
+EXTRA_CFLAGS += -DCONFIG_VIRTIO -DASF_SECFP_PROTO_OFFLOAD -I/home/subha/g_ipsec_la/src/guest/kernel/ipsec
 obj-m += asfipsec.o
 
 asfipsec-y := \

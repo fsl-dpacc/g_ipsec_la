@@ -42,6 +42,7 @@
 #include "ipsfpapi.h"
 #include "ipsecfp.h"
 #include "ipseccmn.h"
+#include "ipsecvio.h"
 
 
 /* Data Structure initialization */
@@ -346,6 +347,7 @@ int secfp_init(void)
 		return SECFP_FAILURE;
 	}
 #else
+#ifndef CONFIG_VIRTIO
 	desc_cache = kmem_cache_create("desc_cache",
 #ifndef CONFIG_ASF_SEC4x
 			sizeof(struct talitos_desc),
@@ -377,6 +379,7 @@ int secfp_init(void)
 		ASFIPSEC_ERR("icv_cache create failed");
 		return -ENOMEM;
 	}
+#endif
 #endif /*ASF_QMAN_IPSEC*/
 
 	pIPSecPPGlobalStats_g = asfAllocPerCpu(sizeof(AsfIPSecPPGlobalStats_t));
@@ -1208,7 +1211,8 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 #ifndef ASF_SECFP_PROTO_OFFLOAD
 	unsigned short usPadLen = 0;
 #endif
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 	struct talitos_desc *desc = NULL;
 #elif !defined(ASF_QMAN_IPSEC)
 	void *desc;
@@ -1366,7 +1370,8 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 
 		ASFIPSEC_DEBUG("OUT-submit to SEC");
 		pIPSecPPGlobalStats->ulTotOutRecvPktsSecApply++;
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		update_chan_out(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
 			pSA->outComplete, (void *)skb) == -EAGAIN)
@@ -1398,7 +1403,8 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			goto drop_skb_list;
 		}
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		skb->cb[SECFP_REF_INDEX]--;
 		if (pSA->option[1] != SECFP_NONE) {
 			ASFIPSEC_DEBUG("2nd Iteration");
@@ -1546,7 +1552,8 @@ static inline int secfp_try_fastPathOutv4(
 	AsfSPDPolicyPPStats_t *pIPSecPolicyPPStats;
 	ASF_boolean_t	bRevalidate = ASF_FALSE;
 	unsigned int ulMTU;
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 	struct talitos_desc *desc = NULL;
 #elif !defined(ASF_QMAN_IPSEC)
 	void *desc;
@@ -1762,8 +1769,8 @@ static inline int secfp_try_fastPathOutv4(
 		ASFIPSEC_DBGL2("Before secfp-submit:"
 			"skb= 0x%x, skb->data= 0x%x, skb->dev= 0x%x\n",
 			(int)skb, (int)skb->data, (int)skb->dev);
-#ifndef CONFIG_ASF_VIO_IPSEC
-#ifndef ASF_QMAN_IPSEC
+//#ifndef ASF_QMAN_IPSEC
+#if !defined(ASF_QMAN_IPSEC) || !defined(CONFIG_VIRTIO)
 		/* Keeping REF_INDEX as 2, one for the h/w
 		and one for the core */
 		skb->cb[SECFP_REF_INDEX] = 2;
@@ -1780,8 +1787,7 @@ static inline int secfp_try_fastPathOutv4(
 						desc, 0);
 		else
 			pSA->prepareOutDescriptor(skb, pSA, desc, 0);
-#endif /*ASF_QMAN_IPSEC*/
-#endif
+#endif /*ASF_QMAN_IPSEC CONFIG_VIRTIO*/
 
 		ASFIPSEC_FPRINT("Pkt Pre Processing len=%d", skb->len);
 		ASFIPSEC_HEXDUMP(skb->data, skb->len);
@@ -1801,20 +1807,19 @@ static inline int secfp_try_fastPathOutv4(
 
 		ASFIPSEC_DEBUG("OUT-submit to SEC");
 		pIPSecPPGlobalStats->ulTotOutRecvPktsSecApply++;
-#ifndef CONFIG_ASF_VIO_IPSEC
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		update_chan_out(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
 			pSA->outComplete, (void *)skb) == -EAGAIN)
 #elif defined(ASF_QMAN_IPSEC)
 		if (secfp_qman_out_submit(pSA, (void *) skb))
+#elif defined(CONFIG_VIRTIO)
+		if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
 #else
 		if (caam_jr_enqueue(pSA->ctx.jrdev,
 			((struct aead_edesc *)desc)->hw_desc,
 			pSA->outComplete, (void *)skb))
-#endif
-#else
-		if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
@@ -1837,8 +1842,8 @@ static inline int secfp_try_fastPathOutv4(
 			goto drop_skb_list;
 		}
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-#ifndef CONFIG_ASF_VIO_IPSEC
-#ifdef CONFIG_ASF_SEC3x
+//#ifdef CONFIG_ASF_SEC3x
+#if defined(CONFIG_ASF_SEC3x) && !defined(CONFIG_VIRTIO)
 		skb->cb[SECFP_REF_INDEX]--;
 		if (pSA->option[1] != SECFP_NONE) {
 			ASFIPSEC_DEBUG("2nd Iteration");
@@ -1871,9 +1876,6 @@ static inline int secfp_try_fastPathOutv4(
 			if (talitos_submit(pdev, pSA->chan, desc,
 					pSA->outComplete,
 					(void *)skb) == -EAGAIN)
-#else
-			if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
-#endif 		
 			{
 				ASFIPSEC_WARN("Outbound Submission to"\
 						"SEC failed ");
@@ -1989,7 +1991,8 @@ static inline void secfp_unmap_descs(struct sk_buff *skb)
  * Error is noted. If no error IV data is updated and packet submitted to ethernet
  * driver
  */
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 void secfp_outComplete(struct device *dev, struct talitos_desc *desc,
 		void *context, int error)
 #else
@@ -2020,6 +2023,9 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 	struct aead_edesc *desc;
 	desc = (struct aead_edesc *)((char *)pdesc -
 			offsetof(struct aead_edesc, hw_desc));
+#endif
+#if defined(CONFIG_VIRTIO)
+	int *desc;
 #endif
 #ifdef CONFIG_DPA
 	dpa_bp = priv->dpa_bp;
@@ -2491,7 +2497,8 @@ static inline unsigned int secfp_inHandleICVCheck(void *dsc, struct sk_buff *skb
 	} else
 		skb->len -= skb->cb[SECFP_ICV_LENGTH];
 
-#else
+#elif !defined(CONFIG_VIRTIO)
+//#else
 	return secfp_inHandleICVCheck3x(dsc, skb);
 #endif
 	return 0;
@@ -2971,7 +2978,8 @@ void secfp_inCompleteUpdateIpv4Pkt(struct sk_buff *pHeadSkb)
 		iph->tos = tos;
 	}
 }
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 void secfp_inCompleteWithFrags(struct device *dev,
 				struct talitos_desc *desc,
 				void *context, int err)
@@ -3008,6 +3016,11 @@ void secfp_inCompleteWithFrags(struct device *dev, u32 *pdesc,
 			++ulNumIter[smp_processor_id()],
 			(unsigned int) desc, err, skb1->cb[SECFP_REF_INDEX]);
 #endif
+
+#ifdef CONFIG_VIRTIO
+	int *desc;
+#endif
+
 	pIPSecPPGlobalStats = asfPerCpuPtr(pIPSecPPGlobalStats_g, smp_processor_id());
 	pIPSecPPGlobalStats->ulTotInProcSecPkts++;
 	ASFIPSEC_FENTRY;
@@ -3050,7 +3063,8 @@ void secfp_inCompleteWithFrags(struct device *dev, u32 *pdesc,
 			ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA, ASF_IPSEC_PP_POL_CNT18);
 		}
 		rcu_read_unlock();
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		if (skb1->cb[SECFP_REF_INDEX]) {
 			skb1->cb[SECFP_ACTION_INDEX] = SECFP_DROP;
 		} else
@@ -3090,7 +3104,8 @@ void secfp_inCompleteWithFrags(struct device *dev, u32 *pdesc,
 		}
 #ifndef ASF_SECFP_PROTO_OFFLOAD
 		if (secfp_inHandleICVCheck(desc, pTailSkb)) {
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 			/* Failure case - only in case of SEC3x*/
 			rcu_read_lock();
 			pSA = secfp_findInSA(*(unsigned int *)&(pHeadSkb->cb[SECFP_VSG_ID_INDEX]),
@@ -3276,9 +3291,11 @@ void secfp_inCompleteWithFrags(struct device *dev, u32 *pdesc,
 #ifndef ASF_QMAN_IPSEC
 static void secfp_free_frags(void *desc, struct sk_buff *skb)
 {
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 	SECFP_DESC_FREE(desc);
-#else
+//#else
+elif !defined(CONFIG_VIRTIO)
 	struct aead_edesc *edesc = (struct aead_edesc *)
 				((char *)desc -	offsetof(struct aead_edesc,
 							hw_desc));
@@ -3307,7 +3324,8 @@ static void secfp_free_frags(void *desc, struct sk_buff *skb)
 }
 #endif
 
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 void secfp_inComplete(struct device *dev, struct talitos_desc *desc,
 		void *context, int err)
 #else
@@ -3333,6 +3351,10 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	struct aead_edesc *desc;
 	desc = (struct aead_edesc *)((char *)pdesc -
 			offsetof(struct aead_edesc, hw_desc));
+#endif
+
+#if defined(CONFIG_VIRTIO)
+	int *desc;
 #endif
 	ASFIPSEC_FENTRY;
 
@@ -3390,7 +3412,8 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 			pSA->ulPkts[smp_processor_id()]--;
 		}
 		rcu_read_unlock();
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		if (skb->cb[SECFP_REF_INDEX]) {
 			skb->cb[SECFP_ACTION_INDEX] = SECFP_DROP;
 			return;
@@ -3419,7 +3442,8 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	}
 #else /*NO ASF_SECFP_PROTO_OFFLOAD*/
 	if (secfp_inHandleICVCheck(desc, skb)) {
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		/* Failure case - only in case of SEC3x*/
 		SECFP_DESC_FREE(desc);
 		/* Failure case */
@@ -3871,7 +3895,8 @@ static inline int secfp_try_fastPathInv6(struct sk_buff *skb1,
 	AsfIPSecPPGlobalStats_t *pIPSecPPGlobalStats;
 	AsfSPDPolicyPPStats_t *pIPSecPolicyPPStats;
 	unsigned char secin_sg_flag;
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 	struct talitos_desc *desc = NULL;
 #elif !defined(ASF_QMAN_IPSEC)
 	void *desc;
@@ -4320,7 +4345,8 @@ sa_expired:
 		}
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
 		pIPSecPPGlobalStats->ulTotInRecvSecPkts++;
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		update_chan_in(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
 			(secin_sg_flag & SECFP_SCATTER_GATHER) ?
@@ -4354,7 +4380,8 @@ sa_expired:
 
 		/* length of skb memory to unmap upon completion */
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		if (pSA->option[1] != SECFP_NONE) {
 			pHeadSkb->cb[SECFP_REF_INDEX]++;
 
@@ -4603,9 +4630,10 @@ static inline int secfp_try_fastPathInv4(struct sk_buff *skb1,
 #ifndef ASF_QMAN_IPSEC
 	unsigned int ulSecLen = 0, ulSecLenIncrease;
 #endif
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 	struct talitos_desc *desc = NULL;
-#elif !defined(ASF_QMAN_IPSEC)
+#elif !defined(ASF_QMAN_IPSEC)  
 	void *desc;
 #ifdef ASF_SECFP_PROTO_OFFLOAD
 	unsigned int ulFragpadlen = 0;
@@ -4980,7 +5008,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 		pHeadSkb->cb[SECFP_REF_INDEX] = 2;
 
 #ifndef ASF_QMAN_IPSEC
-#ifndef CONFIG_ASF_VIO_IPSEC
+#ifndef CONFIG_VIRTIO
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
@@ -4990,7 +5018,6 @@ So all these special boundary cases need to be handled for nr_frags*/
 			rcu_read_unlock();
 			return 0;
 		}
-#endif /* CONFIG_ASF_VIO_IPSEC */
 #if defined(CONFIG_ASF_SEC3x)
 		if ((secin_sg_flag & SECFP_SCATTER_GATHER)
 			== SECFP_SCATTER_GATHER)
@@ -5001,6 +5028,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 #else
 			pSA->prepareInDescriptor(pHeadSkb, pSA, desc, 0);
 #endif
+#endif /* CONFIG_VIRTIO */
 
 		/* Post submission, we can move the data pointer beyond the ESP header */
 		/* Trim the length accordingly */
@@ -5089,8 +5117,8 @@ sa_expired:
 		}
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
 		pIPSecPPGlobalStats->ulTotInRecvSecPkts++;
-#ifndef CONFIG_ASF_VIO_IPSEC
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		update_chan_in(pSA);
 		if (talitos_submit(pdev, pSA->chan, desc,
 			(secin_sg_flag & SECFP_SCATTER_GATHER) ?
@@ -5099,18 +5127,17 @@ sa_expired:
 #elif defined(ASF_QMAN_IPSEC)
 		if (secfp_qman_in_submit(pSA, pHeadSkb))
 
+#elif defined(CONFIG_VIRTIO)
+		if (secfp_vio_decap(pSA,pHeadSkb, 
+						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
+					pSA->inCompleteWithFrags : pSA->inComplete,
+					(void *)pHeadSkb))
 #else
 		if (caam_jr_enqueue(pSA->ctx.jrdev,
 			((struct aead_edesc *)desc)->hw_desc,
 			(secin_sg_flag & SECFP_SCATTER_GATHER) ?
 			pSA->inCompleteWithFrags : pSA->inComplete,
 			(void *)pHeadSkb))
-#endif
-#else			
-		if (secfp_vio_decap(pSA,pHeadSkb, 
-						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
-					pSA->inCompleteWithFrags : pSA->inComplete,
-					(void *)pHeadSkb)
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
@@ -5131,11 +5158,12 @@ sa_expired:
 
 		/* length of skb memory to unmap upon completion */
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		if (pSA->option[1] != SECFP_NONE) {
 			pHeadSkb->cb[SECFP_REF_INDEX]++;
 
-#ifndef CONFIG_ASF_VIO_IPSEC
+#ifndef CONFIG_VIRTIO
 			desc = secfp_desc_alloc();
 
 			if (!desc) {

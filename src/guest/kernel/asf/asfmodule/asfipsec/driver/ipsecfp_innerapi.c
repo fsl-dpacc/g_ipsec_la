@@ -37,6 +37,9 @@
 #include <net/route.h>
 #include <linux/inetdevice.h>
 #include "ipseccmn.h"
+#ifdef CONFIG_VIRTIO
+#include "ipsecvio.h"
+#endif
 
 #define ASF_SECFP_BLOB_TIME_INTERVAL	1
 #define ASF_SECFP_NUM_RQ_ENTRIES	256
@@ -1562,7 +1565,8 @@ outSA_t *secfp_findOutSA(
 }
 
 
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 /* update descriptor information within SA, that can be held permanantly */
 static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 {
@@ -1637,7 +1641,8 @@ static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 	}
 	return 0;
 }
-#else
+//#else
+#elif !defined(CONFIG_VIRTIO)
 static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 {
 	unsigned char mdpadlen[] = { 16, 20, 32, 32, 64, 64 };
@@ -1778,10 +1783,16 @@ static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 
 	return 0;
 }
+#elif defined(CONFIG_VIRTIO)
+static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
+{
+	return 0;
+}
 #endif
 
 /* Internal routines to support Control Plane/Normal Path API */
-#ifndef CONFIG_ASF_SEC4x
+//#ifndef CONFIG_ASF_SEC4x
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 {
 	SAParams_t *pSAParams = (SAParams_t *)(buff);
@@ -1860,7 +1871,8 @@ static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 	}
 	return 0;
 }
-#else
+//#else
+#elif !defined(CONFIG_VIRTIO)
 static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 {
 	SAParams_t *pSAParams = (SAParams_t *)(buff);
@@ -2005,6 +2017,12 @@ static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 		}
 	}
 
+	return 0;
+}
+#elif defined(CONFIG_VIRTIO)
+static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
+{
+	printk("Stubbed out\n");
 	return 0;
 }
 #endif
@@ -2748,7 +2766,8 @@ unsigned int secfp_createOutSA(
 	ASFIPSEC_HEXDUMP(pSA->ctx.key,
 		pSA->SAParams.EncKeyLen + pSA->SAParams.AuthKeyLen);
 
-#else /*CONFIG_ASF_SEC3x*/
+//#else /*CONFIG_ASF_SEC3x*/
+#elif !defined(CONFIG_VIRTIO)
 	secfp_createOutSATalitosDesc(pSA);
 #endif
 #ifndef ASF_QMAN_IPSEC
@@ -2944,8 +2963,10 @@ unsigned int secfp_ModifyOutSA(unsigned long int ulVSGId,
 			pOutSA->SAParams.tunnelInfo.addr.iphv4.saddr
 				= pModSA->u.addrInfo.IPAddr.ipv4addr;
 #ifdef ASF_SECFP_PROTO_OFFLOAD
+#ifndef CONFIG_VIRTIO /* AVS revisit 09/01 */
 			*(pOutSA->ctx.sh_desc + SHARED_GWV4_OFFSET(saddr))
 				= pOutSA->SAParams.tunnelInfo.addr.iphv4.saddr;
+#endif
 #endif
 			}
 			break;
@@ -2955,9 +2976,11 @@ unsigned int secfp_ModifyOutSA(unsigned long int ulVSGId,
 				memcpy(pOutSA->SAParams.tunnelInfo.addr.iphv6.daddr,
 					pModSA->u.addrInfo.IPAddr.ipv6addr, 16);
 #ifdef ASF_SECFP_PROTO_OFFLOAD
+#ifndef CONFIG_VIRTIO /* AVS revisit 09/01 */
 				memcpy((void *)(*(uintptr_t *)((pOutSA->ctx.sh_desc)
 					+ SHARED_GWV6_OFFSET(daddr.s6_addr32))),
 					pModSA->u.addrInfo.IPAddr.ipv6addr, 16);
+#endif
 #endif
 			} else
 #endif
@@ -2965,8 +2988,10 @@ unsigned int secfp_ModifyOutSA(unsigned long int ulVSGId,
 			pOutSA->SAParams.tunnelInfo.addr.iphv4.daddr
 				= pModSA->u.addrInfo.IPAddr.ipv4addr;
 #ifdef ASF_SECFP_PROTO_OFFLOAD
+#ifndef CONFIG_VIRTIO /* AVS revisit 09/01 */
 			*(pOutSA->ctx.sh_desc + SHARED_GWV4_OFFSET(daddr))
 				= pOutSA->SAParams.tunnelInfo.addr.iphv4.daddr;
+#endif
 #endif
 			}
 			break;
@@ -3240,6 +3265,7 @@ unsigned int secfp_CreateInSA(
 			pSA->usNatHdrSize = 0;
 
 
+#ifndef CONFIG_VIRTIO
 #ifdef CONFIG_ASF_SEC4x
 		pSA->option[1] = SECFP_NONE;
 		if (pSA->SAParams.bEncrypt && pSA->SAParams.bAuth)
@@ -3260,7 +3286,7 @@ unsigned int secfp_CreateInSA(
 #else
 		secfp_createInSATalitosDesc(pSA);
 #endif
-#ifdef CONFIG_ASF_VIO_IPSEC
+#else
 		/* New API for virtio IPsec */
 		secfp_createInSAVIpsec(pSA);
 #endif
@@ -3409,8 +3435,10 @@ unsigned int secfp_ModifyInSA(unsigned long int ulVSGId,
 			pInSA->SAParams.tunnelInfo.addr.iphv4.daddr
 				= pModSA->IPAddr.ipv4addr;
 #ifdef ASF_SECFP_PROTO_OFFLOAD
+#ifndef CONFIG_VIRTIO
 			*(pInSA->ctx.sh_desc + SHARED_GWV4_OFFSET(daddr))
 				= pInSA->SAParams.tunnelInfo.addr.iphv4.daddr;
+#endif
 #endif
 			}
 		} else { /*ASFIPSEC_UPDATE_PEER_GW */
@@ -3429,8 +3457,10 @@ unsigned int secfp_ModifyInSA(unsigned long int ulVSGId,
 				pInSA->SAParams.tunnelInfo.addr.iphv4.saddr
 					= pModSA->IPAddr.ipv4addr;
 #ifdef ASF_SECFP_PROTO_OFFLOAD
+#ifndef CONFIG_VIRTIO
 			*(pInSA->ctx.sh_desc + SHARED_GWV4_OFFSET(saddr))
 				= pInSA->SAParams.tunnelInfo.addr.iphv4.daddr;
+#endif
 #endif
 			}
 		}

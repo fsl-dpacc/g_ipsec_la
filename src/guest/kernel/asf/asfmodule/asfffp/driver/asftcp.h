@@ -106,7 +106,7 @@ static inline int asfTcpProcessOptions(ffp_flow_t *flow, unsigned char *tcpopt, 
 	{
 		unsigned long   ts_val;
 		if (asfGetTimeStamp(tcpopt, optlen, &ts_val) == 0) {
-			asf_debug("Subha: ts_val in packet = 0x%x, flow->ulTcptimeStamp = 0x%x\n", ts_val, (unsigned int)flow->ulTcpTimeStamp);
+			asf_debug("Subha: ts_val in packet = 0x%x, flow->ulTcptimeStamp = 0x%x\n", ts_val, (long unsigned int)flow->ulTcpTimeStamp);
 			if (!asfTimeStampLessThan(ts_val, flow->ulTcpTimeStamp-1)) {
 				flow->ulTcpTimeStamp = ts_val;
 				return 0;
