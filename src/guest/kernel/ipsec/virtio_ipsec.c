@@ -1271,7 +1271,7 @@ static void get_caps(
 	if (caps->cipher_algorithms & VIRTIO_IPSEC_DES_CBC)
 		out_arg->caps.cipher_algo_caps.des= 1;
 	if (caps->cipher_algorithms & VIRTIO_IPSEC_3DES_CBC)
-		out_arg->caps.cipher_algo_caps.des_c= 1;
+		out_arg->caps.cipher_algo_caps.des_3= 1;
 	if (caps->cipher_algorithms & VIRTIO_IPSEC_ESP_NULL)
 		out_arg->caps.cipher_algo_caps.null= 1;
 	if (caps->cipher_algorithms & VIRTIO_IPSEC_AES_CBC)
@@ -1287,7 +1287,7 @@ static void get_caps(
 		(caps->cipher_algorithms &	VIRTIO_IPSEC_AES_GCM_ICV12)	||
 		(caps->cipher_algorithms &	VIRTIO_IPSEC_AES_GCM_ICV16))
 		out_arg->caps.comb_algo_caps.aes_gcm = 1;
-	if (caps->cipher_algorithms &	VIRTIO_IPSEC_NULL_AES_GMAC)
+	if (caps->cipher_algorithms &	VIRTIO_IPSEC_AES_GMAC)
 		out_arg->caps.comb_algo_caps.aes_gmac = 1;
 		
 }

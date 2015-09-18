@@ -564,7 +564,7 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 					}
 				break;
 			case G_IPSEC_LA_ALGO_COMB_AES_GMAC:
-				esp->cipher_algo = VIRTIO_IPSEC_NULL_AES_GMAC;
+				esp->cipher_algo = VIRTIO_IPSEC_AES_GMAC;
 				break;
 			}
 		*len += sizeof(struct virtio_ipsec_esp_info);
