@@ -28,9 +28,11 @@
 #include <linux/interrupt.h>
 #include <linux/threads.h>
 #include <linux/kernel.h>
-#include "../../kernel/ipsec/virtio_ipsec_api.h"
+//#include "../../kernel/ipsec/virtio_ipsec_api.h"
+#include "virtio_ipsec_api.h"
 #include "virtio_ipsec_msg.h"
-#include "../../kernel/ipsec/virtio_ipsec.h"
+//#include "../../kernel/ipsec/virtio_ipsec.h"
+#include "virtio_ipsec.h"
 
 #define VIRTIO_IPSEC_MSG_DEBUG	printk
 #if 0

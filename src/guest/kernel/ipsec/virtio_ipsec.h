@@ -2,9 +2,9 @@
 #define _VIRTIO_IPSEC_H
 
 
-#define VIRTIO_ID_IPSEC	20
+#define VIRTIO_ID_IPSEC	13 /* 20 */
 
-/* The feature bitmap for virtio net */
+/* The feature bitmap for virtio ipsec */
 
 /*
 The PCI feature bits part of Virtio Standards will be supported. 

@@ -30,6 +30,7 @@
 #include <linux/threads.h>
 #include <linux/kernel.h>
 #include <drivers/virtio/virtio_pci_common.h>
+//#include "virtio_pci_common.h"
 #include <linux/wait.h>
 #include <linux/cpu.h>
 #include "virtio_ipsec_api.h"
@@ -38,6 +39,7 @@
 
 
 /* Macros */
+#undef printk
 #define VIRTIO_IPSEC_DEBUG printk
 #define G_IPSEC_LA_INTERNAL_HANDLE_SIZE	G_IPSEC_LA_HANDLE_SIZE
 
@@ -4081,10 +4083,12 @@ static int init_vqs(struct virt_ipsec_info *ipsec_dev)
 	if (ret)
 		goto err;
 	
+	printk("alloc_queues done\n");
 	ret = virtipsec_find_vqs(ipsec_dev);
 	if (ret)
 		goto err_free;
 	
+	printk("find_vqs done\n");
 	get_online_cpus();
 	virt_ipsec_set_affinity(ipsec_dev);
 	put_online_cpus();
@@ -4203,20 +4207,20 @@ static u16 calc_num_queues(__u16 max_queues, __u8 device_scaling,
 	__u8 guest_scaling, bool b_notify_q_enabled,
 	__u8 *num_queue_pairs_per_vcpu)
 {
-	u16 lcm;
+	u32 lcm;
 //	u16 max = (b_notify_q_enabled == true) ? (max_queues-2) : (max_queues - 1);
-	u16 max = max_queues;
+	u32 max = max_queues;
 	//u16 max_possible = 0;
 //	u8 num_queue_pairs_per_vcpu; /* Encap+decap */
 
 
-	guest_scaling *= 2; /* for decap + encap */
+	u32 _guest_scaling= guest_scaling * 2; /* for decap + encap */
 
-	lcm = (device_scaling > guest_scaling) ? device_scaling : guest_scaling;
+	lcm = (device_scaling > _guest_scaling) ? device_scaling : _guest_scaling;
 
 	while (1)
 	{
-		if ((lcm%device_scaling == 0) && (lcm%guest_scaling==0)) {
+		if ((lcm%device_scaling == 0) && (lcm%_guest_scaling==0)) {
 			break;
 		}
 		lcm++;
@@ -4224,10 +4228,12 @@ static u16 calc_num_queues(__u16 max_queues, __u8 device_scaling,
 	VIRTIO_IPSEC_DEBUG("%s:%s:%d:LCM=%d \n", __FILE__, __func__, __LINE__, lcm);
 	max = (lcm <= max) ? lcm : max;
 
-	*num_queue_pairs_per_vcpu =  (max/guest_scaling)/2; /* encap,decap pairs */
+	VIRTIO_IPSEC_DEBUG("max = %d, guest_scaling=%d\n", max, _guest_scaling);
+
+	*num_queue_pairs_per_vcpu =  (max/_guest_scaling); /* encap,decap pairs */
 
 	VIRTIO_IPSEC_DEBUG("%s:%s:%d:num_queue_pairs_per_vcpu=%d\n", __FILE__, __func__, __LINE__, 
-	*(uint32_t *)num_queue_pairs_per_vcpu);
+	*num_queue_pairs_per_vcpu);
 
 	return max;
 
@@ -4254,12 +4260,16 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 
 	bool b_notify_q;
 
+	printk("virt_ipsec_probe called\n");
+
 	/* Read number of queues supported */
 	virtio_cread(vdev, struct virtio_ipsec_config, dev_queue_reg, &dev_queue_reg);
 
+	printk("dev_queue_reg = 0x%x\n", dev_queue_reg);
+
 	if ((VIRTIO_IPSEC_MAX_QUEUES_READ(dev_queue_reg) > VIRTIO_IPSEC_MAX_VQS) ||
-		(VIRTIO_IPSEC_MAX_QUEUES_READ(dev_queue_reg) < VIRTIO_IPSEC_MIN_VQS) || 
-		(VIRTIO_IPSEC_DEVICE_SCALING_READ(dev_queue_reg)  == 0))
+		(VIRTIO_IPSEC_MAX_QUEUES_READ(dev_queue_reg) < VIRTIO_IPSEC_MIN_VQS)/** || 
+		(VIRTIO_IPSEC_DEVICE_SCALING_READ(dev_queue_reg)**Temp Hack   == 0) */)
 	{
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Invalid Number of Queues: Configuration\n", 
 			__FILE__, __func__, __LINE__);
@@ -4272,6 +4282,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	
 	if (!v_ipsec_dev)
 	{
+		printk("NO memory?\n");
 		return -ENOMEM;
 	}
 
@@ -4285,45 +4296,96 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	INIT_LIST_HEAD(&ipsec_dev->apps); 
 	
 	ipsec_dev->num_queues = VIRTIO_IPSEC_MAX_QUEUES_READ(dev_queue_reg);
-	ipsec_dev->device_scaling = VIRTIO_IPSEC_DEVICE_SCALING_READ(dev_queue_reg);
-	ipsec_dev->vcpu_scaling = NR_CPUS;
+	// Temp fix : ipsec_dev->device_scaling = VIRTIO_IPSEC_DEVICE_SCALING_READ(dev_queue_reg);
+	ipsec_dev->device_scaling = 1;
+	ipsec_dev->vcpu_scaling = 2; 
+	//ipsec_dev->vcpu_scaling = NR_CPUS;
+
+	/* Temp: prints */
+	printk("num_queues = %d, device_scaling = %d, vcpu_scaling=%d\n",
+		ipsec_dev->num_queues, ipsec_dev->device_scaling, ipsec_dev->vcpu_scaling);
 	
 	/* Read Device features */
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SG_BUFFERS))
+    {
+		VIRTIO_IPSEC_DEBUG("Support SG Buffers\n");
 		ipsec_dev->sg_buffer = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_WESP))
+    {
+		VIRTIO_IPSEC_DEBUG("WESP\n");
 		ipsec_dev->wesp = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SA_BUNDLES))
+    { 
+		VIRTIO_IPSEC_DEBUG("SA_BUNDLES\n");
 		ipsec_dev->sa_bundles = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_UDP_ENCAPSULATION))
+    {
+		VIRTIO_IPSEC_DEBUG("UDP Encap\n");
 		ipsec_dev->udp_encap=1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_TFC))
+    {
+		VIRTIO_IPSEC_DEBUG("TFC \n");
 		ipsec_dev->tfc = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_ESN))
+    {
+		VIRTIO_IPSEC_DEBUG("ESN \n");
 		ipsec_dev->esn = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_ECN))
+    {
+		VIRTIO_IPSEC_DEBUG("ECN \n");
 		ipsec_dev->ecn = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_DF))
+    {
+		VIRTIO_IPSEC_DEBUG("DF\n");
 		ipsec_dev->df = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_ANTI_REPLAY_CHECK))
+    {
+		VIRTIO_IPSEC_DEBUG("ANTI_REPLAY\n");
 		ipsec_dev->anti_replay = 1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_IPV6_SUPPORT))
+    {
+		VIRTIO_IPSEC_DEBUG("IPV6 Support\n");
 		ipsec_dev->ipv6_support=1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SOFT_LIFETIME_BYTES_NOTIFY))
+    {
+		VIRTIO_IPSEC_DEBUG("LIFETIME NOTIFY\n");
 		ipsec_dev->notify_lifetime=1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SEQNUM_OVERFLOW_NOTIFY))
+    {
+		VIRTIO_IPSEC_DEBUG("SEQNUM_NOTIFY\n");
 		ipsec_dev->notify_seqnum_overflow=1;
+    }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SEQNUM_PERIODIC_NOTIFY))
+    {
+		VIRTIO_IPSEC_DEBUG("SEQNUM_PERIODIC\n");
 		ipsec_dev->notify_seqnum_periodic=1;
+    }
 
 	if ((ipsec_dev->notify_lifetime==1) || (ipsec_dev->notify_seqnum_overflow==1) || 
 		(ipsec_dev->notify_seqnum_periodic==1)) 
+	{
 		ipsec_dev->b_notify_q = true;
+		VIRTIO_IPSEC_DEBUG("notify_queue\n");
+	}
+
 
 
 	ipsec_dev->num_queues = calc_num_queues(ipsec_dev->num_queues,
 		ipsec_dev->device_scaling, ipsec_dev->vcpu_scaling, b_notify_q, 
 		&ipsec_dev->num_q_pairs_per_vcpu);
+
+	VIRTIO_IPSEC_DEBUG("num queues = %d\n", ipsec_dev->num_queues);
 
 	if (ipsec_dev->num_queues < 2)
 	{
@@ -4331,6 +4393,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 			 __FILE__,__func__,__LINE__);
 		goto free_resource;
 	}
+	
 
 /*
 	if (ipsec_dev->num_q_pairs_per_vcpu == 0)
@@ -4345,6 +4408,8 @@ int virt_ipsec_probe( struct virtio_device *vdev)
     	err = init_vqs(ipsec_dev);
     	if (err)
 		goto free_device;
+
+	VIRTIO_IPSEC_DEBUG("init_vqs done\n");
 
 	/* Add to available list */
 	if (virt_ipsec_add_to_available_list(v_ipsec_dev)!= VIRTIO_IPSEC_SUCCESS) 
@@ -4366,7 +4431,10 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	*/
 	INIT_WORK(&ipsec_dev->c_work, _ipsec_control_job_done);
 	
+	VIRTIO_IPSEC_DEBUG("Writing device ok\n");
 	virtio_device_ready(vdev);
+
+	VIRTIO_IPSEC_DEBUG("Written device ok\n");
 
 	return 0;
 
@@ -4475,6 +4543,8 @@ static struct virtio_driver virtio_ipsec_driver = {
 static int _init(void)
 {
 	int ret;
+
+	printk("virtio_ipsec module invoked\n");
 	if (safe_ref_array_setup(&v_ipsec_devices,
 		VIRTIO_IPSEC_MAX_DEVICES,
 		true))
@@ -4516,9 +4586,14 @@ static int _init(void)
 
 	_init_tasklet_lists();
 
+	printk("driver->name = %s\n", virtio_ipsec_driver.driver.name);
 	ret = register_virtio_driver(&virtio_ipsec_driver);
 	if (ret < 0)
+	{
+		printk("register_virtio_driver failed\n");
 		goto err_reg;
+	}
+	printk("register_virtio_driver returned %d\n", ret);
 
 	return VIRTIO_IPSEC_SUCCESS;
 	
@@ -4555,7 +4630,7 @@ module_init(_init);
 module_exit(_deinit);
 
 MODULE_DEVICE_TABLE(virtio, id_table);
-MODULE_DESCRIPTION("Virtio SCSI HBA driver");
+MODULE_DESCRIPTION("Virtio IPSEC driver");
 MODULE_LICENSE("GPL");
 
 //module_virtio_driver(virtio_ipsec_driver);
