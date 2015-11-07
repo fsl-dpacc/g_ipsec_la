@@ -380,7 +380,7 @@ ASF_int32_t asfctrl_create_dev_map(struct net_device *dev, ASF_int32_t bForce)
 #ifdef CONFIG_VLAN_8021Q
 	}
 #endif
-#ifdef CONFIG_PPPOE
+#if 0 /*def CONFIG_PPPOE - review */
 	} else if (dev->type == ARPHRD_PPP) {
 		ASF_int32_t parent_cii;
 		struct net_device  *pdev;

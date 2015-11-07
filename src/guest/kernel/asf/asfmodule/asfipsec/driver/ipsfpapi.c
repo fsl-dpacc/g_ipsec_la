@@ -2105,7 +2105,7 @@ static int __init ASFIPSec_Init(void)
 	struct platform_device *plat_dev;
 
 	ASFIPSEC_DEBUG("Entry");
-
+#if 0 /* review */
 #ifdef CONFIG_ASF_SEC4x
 	dev_node = of_find_compatible_node(NULL, NULL, "fsl,sec-v4.0");
 	if (!dev_node) {
@@ -2130,6 +2130,7 @@ static int __init ASFIPSec_Init(void)
 		struct talitos_private *priv = dev_get_drvdata(pdev);
 		dual_intr = priv->irq[1] ? 1 : 0;
 	}
+#endif
 #endif
 	/* Get ASF Capabilities and store them for future use. */
 	ASFGetCapabilities(&asf_cap);
@@ -2176,8 +2177,8 @@ static int __init ASFIPSec_Init(void)
 		return err;
 	}
 
-	if (secfp_register_proc())
-		ASFIPSEC_WARN("Unable to register IPSEC proc");
+	//if (secfp_register_proc()) - review
+	//	ASFIPSEC_WARN("Unable to register IPSEC proc");
 
 	ASFIPSEC_DEBUG("Exit");
 	return 0;

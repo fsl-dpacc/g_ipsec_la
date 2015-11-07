@@ -1,0 +1,20 @@
+* Build procedure
+
+  # Edit g_ipsec_la/build.sh to enter your build env and arch
+    - Define ARCH - not required if building natively
+    - Define CROSS_COMPILE with the prefix for cross-build tools
+    - Update PATH to point to cross-build tools
+    -# Define KERNEL_PATH for the target kernel header files
+
+  # To build the guest kernel modules, use the following command
+    - ./build.sh
+
+  # Modules generated (in the loading order)
+    - g_ipsec_la/bin/virtio_ipsec.ko            look-aside virtio-ipsec driver
+    - g_ipsec_la/bin/min/asf.ko                 port-2-port forwarding driver
+    - g_ipsec_la/bin/min/asfctrl.ko             linux interface for port-2-port forward
+    - g_ipsec_la/bin/min/asfipsec.ko            ipsec driver
+    - g_ipsec_la/bin/min/asfipsec_ctrl.ko       linux interface for ipsec driver
+
+  # To clean the workspace, use the following command
+    - ./build.sh clean

@@ -240,8 +240,8 @@ ASF_void_t  asfctrl_fnNoFlowFound(
 	if (!bVal)
 		local_bh_disable();
 
-	printk("Flow Not found : ulVSGId=%d, skb=%p : Sending it to normal path\n", ulVSGId, skb);
-	printk("Flow Not found : dev=%p, net=%p init_net=%p: Sending it to normal path\n", skb->dev, dev_net(skb->dev), &init_net);
+	//printk("Flow Not found : ulVSGId=%d, skb=%p : Sending it to normal path\n", ulVSGId, skb);
+	//printk("Flow Not found : dev=%p, net=%p init_net=%p: Sending it to normal path\n", skb->dev, dev_net(skb->dev), &init_net);
 
 	/* Send it to for normal path handling */
 	ASFCTRL_netif_receive_skb(skb);

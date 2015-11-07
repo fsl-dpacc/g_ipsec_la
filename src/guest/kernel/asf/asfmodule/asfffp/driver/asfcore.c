@@ -1838,7 +1838,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 #endif
 	if (0 == asf_enable)
 		return AS_FP_PROCEED;
-	printk("devfp_rx called\n");
+	//printk("devfp_rx called\n");
 
 	ASF_RCU_READ_LOCK(bLockFlag);
 
@@ -1957,7 +1957,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 	skb->mac_len += x_hh_len;
 	skb_set_network_header(skb, x_hh_len);
 
-	printk("Subha: skb->mac_len = 0x%x\n");
+	//printk("Subha: skb->mac_len = 0x%x\n");
 
 #ifdef ASF_IPV6_FP_SUPPORT
 	if (usEthType == __constant_htons(ETH_P_IPV6)) {
@@ -2027,7 +2027,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 		goto drop_pkt;
 	}
 
-        printk("rx_1\n");
+        //printk("rx_1\n");
 #ifdef ASF_IPV6_FP_SUPPORT
 	if (iph->protocol ==  IPPROTO_IPV6) {
 		ASF_uint32_t	ret;
@@ -2047,7 +2047,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 		}
 	}
 #endif
-        printk("rx_2\n");
+        //printk("rx_2\n");
 /*
 	if (unlikely((iph->protocol != IPPROTO_TCP)
 		&& (iph->protocol != IPPROTO_UDP)
@@ -2062,7 +2062,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 	}
 */
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-        printk("rx_3\n");
+        //printk("rx_3\n");
 	if (unlikely(skb->ip_summed != CHECKSUM_UNNECESSARY)) {
 		if ((iph->frag_off) & ASF_MF_OFFSET_FLAG_NET_ORDER)
 			bCsumVerify  = 1;
@@ -2115,7 +2115,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 #endif /* (ASF_FEATURE_OPTION > ASF_MINIMUM) */
 
 #if 1 
-        printk("rx_4\n");
+        //printk("rx_4\n");
 	skb->protocol = usEthType;
 	/*skb->pkt_type = ?? */
 	skb->data += x_hh_len;
@@ -2125,7 +2125,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 	skb_set_transport_header(skb, iph->ihl*4);
 #endif
 
-        printk("rx_11\n");
+        //printk("rx_11\n");
 #ifdef ASF_IPSEC_FP_SUPPORT
 
 	/* IPSEC IN PROCESS function call for any of following conditions
@@ -2173,7 +2173,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 #endif /* (ASF_FEATURE_OPTION > ASF_MINIMUM) */
 	}
 #endif /*ASF_IPSEC_FP_SUPPORT*/
-        printk("rx_12\n");
+        //printk("rx_12\n");
 #ifdef ASF_TERM_FP_SUPPORT
 	/* If in Termination Mode , send packet to
 	   TERM module for further processing */
@@ -2193,8 +2193,8 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 			goto drop_pkt;
 	}
 #endif
-        printk("rx_13\n");
-	printk("Forwarding function = 0x%x\n", pASFFWDFn);
+        //printk("rx_13\n");
+	//printk("Forwarding function = 0x%x\n", pASFFWDFn);
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
 	if (!(asf_vsg_info[anDev->ulVSGId]->curMode & fwMode))
 		goto ret_pkt;
