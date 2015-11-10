@@ -1,0 +1,906 @@
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/drivers/net/Kconfig ls2-linux-rc8/drivers/net/Kconfig
+--- ls2-linux-rc8-nov3-bhaskar-clean/drivers/net/Kconfig	2015-10-20 22:16:38.000000000 -0700
++++ ls2-linux-rc8/drivers/net/Kconfig	2015-11-04 18:02:36.741913176 -0800
+@@ -24,6 +24,39 @@
+ # All the following symbols are dependent on NETDEVICES - do not repeat
+ # that for each of the symbols.
+ if NETDEVICES
++config AS_FASTPATH
++	default n
++	bool "Application Specific FastPath"
++	select NAMESPACES
++	select NET_NS
++	select NETFILTER
++	select NETFILTER_ADVANCED
++	select NF_CONNTRACK
++	select NF_CONNTRACK_EVENTS
++	select NF_CONNTRACK_FTP
++	select NF_CONNTRACK_TFTP
++	select NETFILTER_XTABLES
++	select NF_CONNTRACK_IPV4
++	select NF_CONNTRACK_PROC_COMPAT
++	select IP_NF_IPTABLES
++	select IP_NF_MATCH_ADDRTYPE
++	select IP_NF_FILTER
++	select NF_NAT_IPV4
++	select IP_NF_TARGET_REJECT
++	select NF_NAT_NEEDED
++	select IP_NF_TARGET_MASQUERADE
++	select IP_NF_TARGET_REDIRECT
++	select NF_NAT_FTP
++	select NF_NAT_TFTP
++	select IP_NF_MANGLE
++	select VLAN_8021Q
++	select INET_AH
++	select PPP
++	select PPPOE
++	---help---
++	  Enables application specific fastpath n/w stack that
++	  accelerates the throughput for forwarding, firewall, NAT and IPsec
++	  over native Linux stack.
+ 
+ config MII
+ 	tristate
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/drivers/net/virtio_net.c ls2-linux-rc8/drivers/net/virtio_net.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/drivers/net/virtio_net.c	2015-10-20 22:16:39.000000000 -0700
++++ ls2-linux-rc8/drivers/net/virtio_net.c	2015-11-04 18:04:57.515316975 -0800
+@@ -36,6 +36,14 @@
+ module_param(csum, bool, 0444);
+ module_param(gso, bool, 0444);
+ 
++#ifdef CONFIG_AS_FASTPATH
++#define AS_FP_PROCEED   1
++#define AS_FP_STOLEN    2
++typedef int (*devfp_hook_t)(struct sk_buff *skb, struct net_device *dev);
++/* Headroom required for IPSec processing in ASF */
++#define EXTRA_HEADROOM 128
++#endif
++
+ /* FIXME: MTU in config. */
+ #define GOOD_PACKET_LEN (ETH_HLEN + VLAN_HLEN + ETH_DATA_LEN)
+ #define GOOD_COPY_LEN	128
+@@ -180,6 +188,40 @@
+ 	return (struct virtio_net_hdr_mrg_rxbuf *)skb->cb;
+ }
+ 
++
++/* SAI: changes for ASF  */
++#ifdef CONFIG_AS_FASTPATH
++devfp_hook_t devfp_rx_hook_veth;
++devfp_hook_t devfp_tx_hook_veth;
++int devfp_register_rx_hook_veth(devfp_hook_t hook)
++{
++        devfp_rx_hook_veth = hook;
++        printk(KERN_INFO "hook =0x%p, devfp_rx_hook_veth=0x%p\n", hook, devfp_rx_hook_veth);
++        return 0;
++}
++EXPORT_SYMBOL(devfp_register_rx_hook_veth);
++int devfp_deregister_rx_hook_veth(void)
++{
++        devfp_rx_hook_veth = NULL;
++        return 0;
++}
++EXPORT_SYMBOL(devfp_deregister_rx_hook_veth);
++int devfp_register_tx_hook_veth(devfp_hook_t hook)
++{
++        devfp_tx_hook_veth = hook;
++        printk(KERN_INFO "hook =0x%p, devfp_tx_hook_veth=0x%p\n", hook, devfp_tx_hook_veth);
++        return 0;
++}
++EXPORT_SYMBOL(devfp_register_tx_hook_veth);
++
++int devfp_deregister_tx_hook_veth(void)
++{
++        devfp_tx_hook_veth = NULL;
++        return 0;
++}
++EXPORT_SYMBOL(devfp_deregister_tx_hook_veth);
++#endif
++
+ /*
+  * private is used to chain pages for big packets, put the whole
+  * most recent used list in the beginning for reuse
+@@ -518,6 +560,17 @@
+ 
+ 	skb_mark_napi_id(skb, &rq->napi);
+ 
++#ifdef CONFIG_AS_FASTPATH
++	skb->pkt_type = PACKET_HOST;
++
++        printk("skb->pkt_type = %d\n", skb->pkt_type);
++        if (devfp_rx_hook_veth) {
++                printk("Calling devfp_rx_hook %p\n", devfp_rx_hook_veth);
++
++                if (devfp_rx_hook_veth(skb, dev) == AS_FP_STOLEN)
++                        return;
++        }
++#endif
+ 	netif_receive_skb(skb);
+ 	return;
+ 
+@@ -850,6 +903,80 @@
+ 
+ 	pr_debug("%s: xmit %p %pM\n", vi->dev->name, skb, dest);
+ 
++#ifdef CONFIG_AS_FASTPATH
++        if (devfp_tx_hook_veth && (skb->pkt_type != PACKET_FASTROUTE))
++                if (devfp_tx_hook_veth(skb, vi->dev) == AS_FP_STOLEN)
++                        return 0;
++#endif
++
++	can_push = vi->any_header_sg &&
++		!((unsigned long)skb->data & (__alignof__(*hdr) - 1)) &&
++		!skb_header_cloned(skb) && skb_headroom(skb) >= hdr_len;
++	/* Even if we can, don't push here yet as this would skew
++	 * csum_start offset below. */
++	if (can_push)
++		hdr = (struct virtio_net_hdr_mrg_rxbuf *)(skb->data - hdr_len);
++	else
++		hdr = skb_vnet_hdr(skb);
++
++	if (skb->ip_summed == CHECKSUM_PARTIAL) {
++		hdr->hdr.flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
++		hdr->hdr.csum_start = cpu_to_virtio16(vi->vdev,
++						skb_checksum_start_offset(skb));
++		hdr->hdr.csum_offset = cpu_to_virtio16(vi->vdev,
++							 skb->csum_offset);
++	} else {
++		hdr->hdr.flags = 0;
++		hdr->hdr.csum_offset = hdr->hdr.csum_start = 0;
++	}
++
++	if (skb_is_gso(skb)) {
++		hdr->hdr.hdr_len = cpu_to_virtio16(vi->vdev, skb_headlen(skb));
++		hdr->hdr.gso_size = cpu_to_virtio16(vi->vdev,
++						    skb_shinfo(skb)->gso_size);
++		if (skb_shinfo(skb)->gso_type & SKB_GSO_TCPV4)
++			hdr->hdr.gso_type = VIRTIO_NET_HDR_GSO_TCPV4;
++		else if (skb_shinfo(skb)->gso_type & SKB_GSO_TCPV6)
++			hdr->hdr.gso_type = VIRTIO_NET_HDR_GSO_TCPV6;
++		else if (skb_shinfo(skb)->gso_type & SKB_GSO_UDP)
++			hdr->hdr.gso_type = VIRTIO_NET_HDR_GSO_UDP;
++		else
++			BUG();
++		if (skb_shinfo(skb)->gso_type & SKB_GSO_TCP_ECN)
++			hdr->hdr.gso_type |= VIRTIO_NET_HDR_GSO_ECN;
++	} else {
++		hdr->hdr.gso_type = VIRTIO_NET_HDR_GSO_NONE;
++		hdr->hdr.gso_size = hdr->hdr.hdr_len = 0;
++	}
++
++	if (vi->mergeable_rx_bufs)
++		hdr->num_buffers = 0;
++
++	sg_init_table(sq->sg, MAX_SKB_FRAGS + 2);
++	if (can_push) {
++		__skb_push(skb, hdr_len);
++		num_sg = skb_to_sgvec(skb, sq->sg, 0, skb->len);
++		/* Pull header back to avoid skew in tx bytes calculations. */
++		__skb_pull(skb, hdr_len);
++	} else {
++		sg_set_buf(sq->sg, hdr, hdr_len);
++		num_sg = skb_to_sgvec(skb, sq->sg + 1, 0, skb->len) + 1;
++	}
++	return virtqueue_add_outbuf(sq->vq, sq->sg, num_sg, skb, GFP_ATOMIC);
++}
++
++#ifdef CONFIG_AS_FASTPATH
++static int asf_xmit_skb(struct send_queue *sq, struct sk_buff *skb)
++{
++	struct virtio_net_hdr_mrg_rxbuf *hdr;
++	const unsigned char *dest = ((struct ethhdr *)skb->data)->h_dest;
++	struct virtnet_info *vi = sq->vq->vdev->priv;
++	unsigned num_sg;
++	unsigned hdr_len = vi->hdr_len;
++	bool can_push;
++
++	pr_debug("%s: xmit %p %pM\n", vi->dev->name, skb, dest);
++
+ 	can_push = vi->any_header_sg &&
+ 		!((unsigned long)skb->data & (__alignof__(*hdr) - 1)) &&
+ 		!skb_header_cloned(skb) && skb_headroom(skb) >= hdr_len;
+@@ -905,6 +1032,8 @@
+ 	}
+ 	return virtqueue_add_outbuf(sq->vq, sq->sg, num_sg, skb, GFP_ATOMIC);
+ }
++EXPORT_SYMBOL(asf_xmit_skb);
++#endif
+ 
+ static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
+ {
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/linux/netfilter/nf_conntrack_tcp.h ls2-linux-rc8/include/linux/netfilter/nf_conntrack_tcp.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/linux/netfilter/nf_conntrack_tcp.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/linux/netfilter/nf_conntrack_tcp.h	2015-11-04 18:13:34.496655610 -0800
+@@ -11,6 +11,12 @@
+ 	u_int32_t	td_maxack;	/* max of ack */
+ 	u_int8_t	td_scale;	/* window scale factor */
+ 	u_int8_t	flags;		/* per direction options */
++#ifdef CONFIG_AS_FASTPATH
++	u_int32_t	td_tcptimestamp;/* Time Stamp */
++	int32_t		td_delta;	/* for Packet mangling */
++	/* Last window advertisement seen in dir */
++	u_int32_t	td_rcvwin;
++#endif
+ };
+ 
+ struct ip_ct_tcp {
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/linux/netfilter_ipv4/ip_tables.h ls2-linux-rc8/include/linux/netfilter_ipv4/ip_tables.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/linux/netfilter_ipv4/ip_tables.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/linux/netfilter_ipv4/ip_tables.h	2015-11-04 18:15:10.898786484 -0800
+@@ -68,6 +68,14 @@
+ 				 const struct nf_hook_state *state,
+ 				 struct xt_table *table);
+ 
++#ifdef CONFIG_AS_FASTPATH
++struct firewall_asfctrl {
++	void (*firewall_asfctrl_cb)(void);
++};
++
++extern void hook_firewall_asfctrl_cb(const struct firewall_asfctrl *);
++#endif
++
+ #ifdef CONFIG_COMPAT
+ #include <net/compat.h>
+ 
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/linux/skbuff.h ls2-linux-rc8/include/linux/skbuff.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/linux/skbuff.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/linux/skbuff.h	2015-11-04 18:17:01.784750226 -0800
+@@ -539,8 +539,11 @@
+ 	 * want to keep them across layers you have to do a skb_clone()
+ 	 * first. This is owned by whoever has the skb queued ATM.
+ 	 */
++#ifdef CONFIG_AS_FASTPATH
++	char			cb[96] __aligned(8);
++#else
+ 	char			cb[48] __aligned(8);
+-
++#endif
+ 	unsigned long		_skb_refdst;
+ 	void			(*destructor)(struct sk_buff *skb);
+ #ifdef CONFIG_XFRM
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/net/ip6_route.h ls2-linux-rc8/include/net/ip6_route.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/net/ip6_route.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/net/ip6_route.h	2015-11-04 18:19:13.005690173 -0800
+@@ -199,4 +199,8 @@
+ 	return &rt->rt6i_gateway;
+ }
+ 
++#ifdef CONFIG_AS_FASTPATH
++typedef void ipv6_route_flush_hook(void);
++void ipv6_route_hook_fn_register(ipv6_route_flush_hook *flush);
++#endif
+ #endif
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/net/route.h ls2-linux-rc8/include/net/route.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/net/route.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/net/route.h	2015-11-04 18:19:38.235700131 -0800
+@@ -304,6 +304,11 @@
+ 	return skb->skb_iif;
+ }
+ 
++#ifdef CONFIG_AS_FASTPATH
++typedef void route_flush_hook(void);
++void route_hook_fn_register(route_flush_hook *flush);
++#endif
++
+ extern int sysctl_ip_default_ttl;
+ 
+ static inline int ip4_dst_hoplimit(const struct dst_entry *dst)
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/include/net/xfrm.h ls2-linux-rc8/include/net/xfrm.h
+--- ls2-linux-rc8-nov3-bhaskar-clean/include/net/xfrm.h	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/include/net/xfrm.h	2015-11-04 18:21:03.105673939 -0800
+@@ -225,7 +225,10 @@
+ 
+ 	/* Security context */
+ 	struct xfrm_sec_ctx	*security;
+-
++#ifdef CONFIG_AS_FASTPATH
++	uintptr_t	asf_sa_cookie;
++	u32		asf_sa_direction;
++#endif
+ 	/* Private data of this transformer, format is opaque,
+ 	 * interpreted by xfrm_type methods. */
+ 	void			*data;
+@@ -538,6 +541,9 @@
+ 	struct xfrm_lifetime_cfg lft;
+ 	struct xfrm_lifetime_cur curlft;
+ 	struct xfrm_policy_walk_entry walk;
++#ifdef CONFIG_AS_FASTPATH
++	u32			asf_cookie;
++#endif
+ 	struct xfrm_policy_queue polq;
+ 	u8			type;
+ 	u8			action;
+@@ -1806,4 +1812,29 @@
+ 
+ 	return 0;
+ }
++#ifdef CONFIG_AS_FASTPATH
++struct asf_ipsec_callbackfn_s {
++	/* Callback to offload the encryption Info*/
++	int	(*ipsec_enc_hook)(struct xfrm_policy *xp,
++			struct xfrm_state *xfrm, struct flowi *fl, int ifindex);
++
++	/* Callback to offload the decryption Info*/
++	int	(*ipsec_dec_hook)(struct xfrm_policy *xp,
++			struct xfrm_state *xfrm, struct flowi *fl, int ifindex);
++
++	/* Callback to receive the live SA Sync Info*/
++	int	(*ipsec_sync_sa)(struct xfrm_state *xfrm, int dir,
++			int seq_no, int bytes);
++
++	/* Callback to send the packet to ASF for further IPSEC processing */
++	int	(*ipsec_encrypt_n_send)(struct sk_buff *skb,
++			struct xfrm_state *xfrm);
++
++	/* Callback to send the packet to ASF for further IPSEC processing */
++	int	(*ipsec_decrypt_n_send)(struct sk_buff *skb,
++			struct xfrm_state *xfrm);
++};
++extern struct asf_ipsec_callbackfn_s	asf_cb_fns;
++#endif
++
+ #endif	/* _NET_XFRM_H */
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/core/dev.c ls2-linux-rc8/net/core/dev.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/core/dev.c	2015-10-20 22:16:42.000000000 -0700
++++ ls2-linux-rc8/net/core/dev.c	2015-11-04 18:25:11.061359688 -0800
+@@ -2955,6 +2955,13 @@
+ 		skb_dst_force(skb);
+ 
+ 	txq = netdev_pick_tx(dev, skb, accel_priv);
++#if 0 /*def CONFIG_AS_FASTPATH SAI */
++	if ((dev->features & NETIF_F_HW_QDISC) &&
++	    likely(!netif_tx_queue_stopped(txq))) {
++		skb = dev_hard_start_xmit(skb, dev, txq, &rc);
++		goto out;
++	}
++#endif
+ 	q = rcu_dereference_bh(txq->qdisc);
+ 
+ #ifdef CONFIG_NET_CLS_ACT
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/ip_forward.c ls2-linux-rc8/net/ipv4/ip_forward.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/ip_forward.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/ipv4/ip_forward.c	2015-11-04 18:36:40.827321648 -0800
+@@ -157,3 +157,6 @@
+ 	kfree_skb(skb);
+ 	return NET_RX_DROP;
+ }
++#ifdef CONFIG_AS_FASTPATH
++EXPORT_SYMBOL(ip_forward);
++#endif
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/netfilter/ip_tables.c ls2-linux-rc8/net/ipv4/netfilter/ip_tables.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/netfilter/ip_tables.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/ipv4/netfilter/ip_tables.c	2015-11-04 18:34:10.905472760 -0800
+@@ -63,6 +63,19 @@
+ #define inline
+ #endif
+ 
++#ifdef CONFIG_ASF_INGRESS_MARKER
++marker_add_hook *marker_add_fn;
++marker_flush_hook *marker_flush_fn;
++
++void marker_v4_hook_fn_register(marker_add_hook *add,
++			    marker_flush_hook *flush)
++{
++	marker_add_fn = add;
++	marker_flush_fn = flush;
++}
++EXPORT_SYMBOL(marker_v4_hook_fn_register);
++#endif
++
+ void *ipt_alloc_initial_table(const struct xt_table *info)
+ {
+ 	return xt_alloc_initial_table(ipt, IPT);
+@@ -872,6 +885,65 @@
+ 			memcpy(newinfo->entries[i], entry0, newinfo->size);
+ 	}
+ 
++#ifdef CONFIG_ASF_INGRESS_MARKER
++	/* Rules has been verified now safe to offload to ASF */
++	if (marker_add_fn && (0 == strcmp(repl->name, "mangle"))) {
++		struct xt_entry_match *m;
++		struct xt_entry_target *t;
++		markerRule_t rules[MAX_MARKER_RULES] = {};
++		uint16_t *sport, *dport;
++		uint32_t  num = 0;
++
++		/* Whether It is FLUSH request ? */
++		/* Note: num_entries are always equals to num_counters +1, when adding Rules
++		   while num_entries comes as '6' as default value when FLUSH is required */
++		if ((repl->num_entries == 6) && (repl->num_entries < repl->num_counters)) {
++			if (marker_flush_fn)
++				marker_flush_fn();
++			return ret;
++		}
++		xt_entry_foreach(iter, entry0, newinfo->size)
++		{
++			/* Only POSTROUTING CHAINS */
++			if (iter->comefrom != (0x1 << NF_INET_POST_ROUTING))
++				continue;
++			if ((iter->ip.proto != 17/*UDP */) &&
++					(iter->ip.proto != 6/*TCP */))
++				continue;
++
++			if (num == MAX_MARKER_RULES) {
++				printk(KERN_INFO "Maximum %d Rule permitted\n",
++								MAX_MARKER_RULES);
++				break;
++			}
++			m = (void *)iter + sizeof(struct ipt_entry);
++			t = (void *)iter + iter->target_offset;
++			if (0 != strcmp(t->u.kernel.target->name, "DSCP"))
++				continue;
++
++			rules[num].src_ip[0] = iter->ip.src.s_addr;
++			rules[num].dst_ip[0] = iter->ip.dst.s_addr;
++			rules[num].proto = iter->ip.proto;
++			/* We are passing Port Mask instead of Value , since mask = value.
++			   But when Port are not configured, we get 0xFFFF to indicate that
++			   ANY port value is accepted. */
++			sport = (uint16_t *)&m->data[2];
++			dport = (uint16_t *)&m->data[6];
++			rules[num].src_port = *sport;
++			rules[num].dst_port = *dport;
++			rules[num].uciDscp = (t->data[0] << 2);
++
++			num++;
++		}
++		if (num > 0) {
++			marker_db_t arg;
++
++			arg.rule = &rules[0];
++			arg.num_rules = num;
++			marker_add_fn(&arg);
++		}
++	}
++#endif
+ 	return ret;
+ }
+ 
+@@ -1172,6 +1244,16 @@
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_AS_FASTPATH
++void (*pfnfirewall_asfctrl)(void);
++
++void hook_firewall_asfctrl_cb(const struct firewall_asfctrl *fwasfctrl)
++{
++	pfnfirewall_asfctrl = fwasfctrl->firewall_asfctrl_cb;
++}
++EXPORT_SYMBOL(hook_firewall_asfctrl_cb);
++#endif
++
+ static int
+ __do_replace(struct net *net, const char *name, unsigned int valid_hooks,
+ 	     struct xt_table_info *newinfo, unsigned int num_counters,
+@@ -1236,6 +1318,13 @@
+ 	}
+ 	vfree(counters);
+ 	xt_table_unlock(t);
++
++#ifdef CONFIG_AS_FASTPATH
++	/* Call the  ASF CTRL CB */
++	if (!ret && pfnfirewall_asfctrl)
++		pfnfirewall_asfctrl();
++#endif
++
+ 	return ret;
+ 
+  put_module:
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/route.c ls2-linux-rc8/net/ipv4/route.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/ipv4/route.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/ipv4/route.c	2015-11-04 18:39:00.984408686 -0800
+@@ -187,6 +187,10 @@
+ };
+ EXPORT_SYMBOL(ip_tos2prio);
+ 
++#ifdef CONFIG_AS_FASTPATH
++static route_flush_hook *route_flush_fn;
++#endif
++
+ static DEFINE_PER_CPU(struct rt_cache_stat, rt_cache_stat);
+ #define RT_CACHE_STAT_INC(field) raw_cpu_inc(rt_cache_stat.field)
+ 
+@@ -433,6 +437,10 @@
+ void rt_cache_flush(struct net *net)
+ {
+ 	rt_genid_bump_ipv4(net);
++#ifdef CONFIG_AS_FASTPATH
++	if (route_flush_fn)
++		route_flush_fn();
++#endif
+ }
+ 
+ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
+@@ -2195,6 +2203,14 @@
+ }
+ EXPORT_SYMBOL_GPL(__ip_route_output_key);
+ 
++#ifdef CONFIG_AS_FASTPATH
++void route_hook_fn_register(route_flush_hook *flush)
++{
++	route_flush_fn = flush;
++}
++EXPORT_SYMBOL(route_hook_fn_register);
++#endif
++
+ static struct dst_entry *ipv4_blackhole_dst_check(struct dst_entry *dst, u32 cookie)
+ {
+ 	return NULL;
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/ipv6/netfilter/ip6_tables.c ls2-linux-rc8/net/ipv6/netfilter/ip6_tables.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/ipv6/netfilter/ip6_tables.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/ipv6/netfilter/ip6_tables.c	2015-11-04 18:41:03.518496921 -0800
+@@ -885,6 +885,70 @@
+ 			memcpy(newinfo->entries[i], entry0, newinfo->size);
+ 	}
+ 
++#ifdef CONFIG_ASF_INGRESS_MARKER
++	/* Rules has been verified now safe to offload to ASF */
++	if (marker_v6_add_fn && (0 == strcmp(repl->name, "mangle"))) {
++		struct xt_entry_match *m;
++		struct xt_entry_target *t;
++		markerRule_t rules[MAX_MARKER_RULES] = {};
++		uint16_t *sport, *dport;
++		uint32_t  num = 0;
++
++		/* Whether It is FLUSH request ? */
++		/* Note: num_entries are always equals to num_counters +1, when adding Rules
++		   while num_entries comes as '6' as default value when FLUSH is required */
++		if ((repl->num_entries == 6) && (repl->num_entries < repl->num_counters)) {
++			if (marker_v6_flush_fn)
++				marker_v6_flush_fn();
++			return ret;
++		}
++		xt_entry_foreach(iter, entry0, newinfo->size)
++		{
++			/* Only POSTROUTING CHAINS */
++			if (iter->comefrom != (0x1 << NF_INET_POST_ROUTING))
++				continue;
++			if ((iter->ipv6.proto != 17/*UDP */) && (iter->ipv6.proto != 6/*TCP */))
++				continue;
++
++			if (num == MAX_MARKER_RULES) {
++				printk(KERN_INFO "Maximum %d Rule permitted\n",
++								MAX_MARKER_RULES);
++				break;
++			}
++			m = (void *)iter + sizeof(struct ip6t_entry);
++			t = (void *)iter + iter->target_offset;
++			if (0 != strcmp(t->u.kernel.target->name, "DSCP"))
++				continue;
++
++			rules[num].src_ip[0] = iter->ipv6.src.in6_u.u6_addr32[0];
++			rules[num].src_ip[1] = iter->ipv6.src.in6_u.u6_addr32[1];
++			rules[num].src_ip[2] = iter->ipv6.src.in6_u.u6_addr32[2];
++			rules[num].src_ip[3] = iter->ipv6.src.in6_u.u6_addr32[3];
++			rules[num].dst_ip[0] = iter->ipv6.dst.in6_u.u6_addr32[0];
++			rules[num].dst_ip[1] = iter->ipv6.dst.in6_u.u6_addr32[1];
++			rules[num].dst_ip[2] = iter->ipv6.dst.in6_u.u6_addr32[2];
++			rules[num].dst_ip[3] = iter->ipv6.dst.in6_u.u6_addr32[3];
++			rules[num].proto = iter->ipv6.proto;
++			/* We are passing Port Mask instead of Value , since mask = value.
++			   But when Port are not configured, we get 0xFFFF to indicate that
++			   ANY port value is accepted. */
++			sport = (uint16_t *)&m->data[2];
++			dport = (uint16_t *)&m->data[6];
++			rules[num].src_port = *sport;
++			rules[num].dst_port = *dport;
++			rules[num].uciDscp = (t->data[0] << 2);
++
++			num++;
++		}
++		if (num > 0) {
++			marker_db_t arg;
++
++			arg.rule = &rules[0];
++			arg.num_rules = num;
++			marker_v6_add_fn(&arg);
++		}
++	}
++#endif
+ 	return ret;
+ }
+ 
+@@ -1185,6 +1249,10 @@
+ 	return ret;
+ }
+ 
++#ifdef CONFIG_AS_FASTPATH
++extern void (*pfnfirewall_asfctrl)(void);
++#endif
++
+ static int
+ __do_replace(struct net *net, const char *name, unsigned int valid_hooks,
+ 	     struct xt_table_info *newinfo, unsigned int num_counters,
+@@ -1249,6 +1317,13 @@
+ 	}
+ 	vfree(counters);
+ 	xt_table_unlock(t);
++
++#ifdef CONFIG_AS_FASTPATH
++	/* Call the  ASF CTRL CB */
++	if (!ret && pfnfirewall_asfctrl)
++		pfnfirewall_asfctrl();
++#endif
++
+ 	return ret;
+ 
+  put_module:
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/ipv6/route.c ls2-linux-rc8/net/ipv6/route.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/ipv6/route.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/ipv6/route.c	2015-11-04 18:42:05.911846211 -0800
+@@ -65,6 +65,10 @@
+ #include <linux/sysctl.h>
+ #endif
+ 
++#ifdef CONFIG_AS_FASTPATH
++static ipv6_route_flush_hook *ipv6_route_flush_fn;
++#endif
++
+ enum rt6_nud_state {
+ 	RT6_NUD_FAIL_HARD = -3,
+ 	RT6_NUD_FAIL_PROBE = -2,
+@@ -861,6 +865,11 @@
+ 	err = fib6_add(&table->tb6_root, rt, info, mxc);
+ 	write_unlock_bh(&table->tb6_lock);
+ 
++#ifdef CONFIG_AS_FASTPATH
++	if ((!err) && ipv6_route_flush_fn)
++		ipv6_route_flush_fn();
++#endif
++
+ 	return err;
+ }
+ 
+@@ -1755,6 +1764,12 @@
+ 
+ out:
+ 	ip6_rt_put(rt);
++
++#ifdef CONFIG_AS_FASTPATH
++	if ((!err) && ipv6_route_flush_fn)
++		ipv6_route_flush_fn();
++#endif
++
+ 	return err;
+ }
+ 
+@@ -3309,3 +3324,11 @@
+ 	dst_entries_destroy(&ip6_dst_blackhole_ops);
+ 	kmem_cache_destroy(ip6_dst_ops_template.kmem_cachep);
+ }
++
++#ifdef CONFIG_AS_FASTPATH
++void ipv6_route_hook_fn_register(ipv6_route_flush_hook *flush)
++{
++	ipv6_route_flush_fn = flush;
++}
++EXPORT_SYMBOL(ipv6_route_hook_fn_register);
++#endif
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/netfilter/nf_conntrack_proto_tcp.c ls2-linux-rc8/net/netfilter/nf_conntrack_proto_tcp.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/netfilter/nf_conntrack_proto_tcp.c	2015-10-20 22:16:43.000000000 -0700
++++ ls2-linux-rc8/net/netfilter/nf_conntrack_proto_tcp.c	2015-11-04 18:44:14.179121923 -0800
+@@ -706,6 +706,48 @@
+ 				state->retrans = 0;
+ 			}
+ 		}
++
++#ifdef CONFIG_AS_FASTPATH
++	state->seen[dir].td_delta = receiver_offset;
++	state->seen[dir].td_rcvwin = win;
++	/* Setting Time stamp */
++	{
++		unsigned char *tcpopt;
++		unsigned char *endptr;
++		int     optlen;
++		tcpopt = (unsigned char *)(tcph) + 20;
++		optlen = tcph->doff * 4 - 20;
++		if (optlen > 0) {
++			endptr = tcpopt + optlen;
++			while (tcpopt < endptr) {
++				if (tcpopt[1] <= 0)
++					break;
++
++				switch (*tcpopt) {
++				case TCPOPT_EOL:
++				case TCPOPT_NOP:
++					tcpopt++;
++					break;
++				case TCPOPT_MSS:
++					tcpopt += 4; /* 4 byte option length */
++					break;
++				case TCPOPT_WINDOW:
++					tcpopt += 3; /* 3 byte option length */
++					break;
++				case TCPOPT_TIMESTAMP:
++					state->seen[dir].td_tcptimestamp =
++						ntohl(*((unsigned long *)
++							(tcpopt + 2)));
++					goto DONE;
++				default:
++					tcpopt += tcpopt[1];
++					break;
++				}
++			}
++		}
++	}
++DONE:
++#endif
+ 		res = true;
+ 	} else {
+ 		res = false;
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_input.c ls2-linux-rc8/net/xfrm/xfrm_input.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_input.c	2015-10-20 22:16:44.000000000 -0700
++++ ls2-linux-rc8/net/xfrm/xfrm_input.c	2015-11-04 18:28:30.314236444 -0800
+@@ -269,6 +269,18 @@
+ 			goto drop_unlock;
+ 		}
+ 
++#ifdef CONFIG_AS_FASTPATH
++		if (!x->asf_sa_cookie && asf_cb_fns.ipsec_dec_hook)
++			asf_cb_fns.ipsec_dec_hook(NULL, x, NULL, skb->skb_iif);
++
++		spin_unlock(&x->lock);
++		if (x->asf_sa_cookie && asf_cb_fns.ipsec_decrypt_n_send) {
++			if (!asf_cb_fns.ipsec_decrypt_n_send(skb, x))
++				return 0;
++		}
++		spin_lock(&x->lock);
++#endif
++
+ 		if (x->repl->check(x, skb, seq)) {
+ 			XFRM_INC_STATS(net, LINUX_MIB_XFRMINSTATESEQERROR);
+ 			goto drop_unlock;
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_output.c ls2-linux-rc8/net/xfrm/xfrm_output.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_output.c	2015-10-20 22:16:44.000000000 -0700
++++ ls2-linux-rc8/net/xfrm/xfrm_output.c	2015-11-04 18:29:06.910497020 -0800
+@@ -54,6 +54,17 @@
+ 			goto error_nolock;
+ 		}
+ 
++#ifdef CONFIG_AS_FASTPATH
++		if (!x->asf_sa_cookie && asf_cb_fns.ipsec_enc_hook)
++			asf_cb_fns.ipsec_enc_hook(NULL, x, NULL, skb->skb_iif);
++
++		if (x->asf_sa_cookie && asf_cb_fns.ipsec_encrypt_n_send) {
++			err = -EINPROGRESS;
++			if (!asf_cb_fns.ipsec_encrypt_n_send(skb, x))
++				goto out;
++		}
++#endif
++
+ 		err = x->outer_mode->output(x, skb);
+ 		if (err) {
+ 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEMODEERROR);
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_policy.c ls2-linux-rc8/net/xfrm/xfrm_policy.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_policy.c	2015-10-20 22:16:44.000000000 -0700
++++ ls2-linux-rc8/net/xfrm/xfrm_policy.c	2015-11-04 18:31:13.161442284 -0800
+@@ -59,6 +59,33 @@
+ static struct xfrm_policy *__xfrm_policy_unlink(struct xfrm_policy *pol,
+ 						int dir);
+ 
++#ifdef CONFIG_AS_FASTPATH
++struct asf_ipsec_callbackfn_s	asf_cb_fns = {0};
++
++void  register_ipsec_offload_hook(struct asf_ipsec_callbackfn_s *p_fn_list)
++{
++	asf_cb_fns.ipsec_enc_hook = p_fn_list->ipsec_enc_hook;
++	asf_cb_fns.ipsec_dec_hook = p_fn_list->ipsec_dec_hook;
++	asf_cb_fns.ipsec_sync_sa = p_fn_list->ipsec_sync_sa;
++	asf_cb_fns.ipsec_encrypt_n_send
++			= p_fn_list->ipsec_encrypt_n_send;
++	asf_cb_fns.ipsec_decrypt_n_send
++			= p_fn_list->ipsec_decrypt_n_send;
++
++}
++EXPORT_SYMBOL(register_ipsec_offload_hook);
++
++void unregister_ipsec_offload_hook(void)
++{
++	asf_cb_fns.ipsec_enc_hook = NULL;
++	asf_cb_fns.ipsec_dec_hook = NULL;
++	asf_cb_fns.ipsec_sync_sa = NULL;
++	asf_cb_fns.ipsec_encrypt_n_send = NULL;
++	asf_cb_fns.ipsec_decrypt_n_send = NULL;
++}
++EXPORT_SYMBOL(unregister_ipsec_offload_hook);
++#endif	/* CONFIG_AS_FASTPATH */
++
+ static inline bool
+ __xfrm4_selector_match(const struct xfrm_selector *sel, const struct flowi *fl)
+ {
+@@ -794,6 +821,9 @@
+ 		__xfrm_policy_unlink(delpol, dir);
+ 	}
+ 	policy->index = delpol ? delpol->index : xfrm_gen_index(net, dir, policy->index);
++#ifdef CONFIG_AS_FASTPATH
++	policy->asf_cookie = delpol ? delpol->asf_cookie : 0;
++#endif	
+ 	hlist_add_head(&policy->byidx, net->xfrm.policy_byidx+idx_hash(net, policy->index));
+ 	policy->curlft.add_time = get_seconds();
+ 	policy->curlft.use_time = 0;
+@@ -1352,6 +1382,11 @@
+ 		newp->xfrm_nr = old->xfrm_nr;
+ 		newp->index = old->index;
+ 		newp->type = old->type;
++
++#ifdef CONFIG_AS_FASTPATH
++		newp->asf_cookie = old->asf_cookie;
++#endif
++
+ 		memcpy(newp->xfrm_vec, old->xfrm_vec,
+ 		       newp->xfrm_nr*sizeof(struct xfrm_tmpl));
+ 		write_lock_bh(&net->xfrm.xfrm_policy_lock);
+diff -Naur ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_state.c ls2-linux-rc8/net/xfrm/xfrm_state.c
+--- ls2-linux-rc8-nov3-bhaskar-clean/net/xfrm/xfrm_state.c	2015-10-20 22:16:44.000000000 -0700
++++ ls2-linux-rc8/net/xfrm/xfrm_state.c	2015-11-04 18:29:45.210506573 -0800
+@@ -1693,6 +1693,69 @@
+ 	spin_unlock(&x->lock);
+ }
+ 
++#ifdef CONFIG_AS_FASTPATH
++struct xfrm_policy *xfrm_state_policy_mapping(struct xfrm_state *xfrm)
++{
++	struct xfrm_policy *xp = 0, *matched_pol = 0;
++	struct net *xfrm_net = xs_net(xfrm);
++	struct list_head *list_policy_head = &xfrm_net->xfrm.policy_all;
++	struct xfrm_policy_walk_entry *x;
++	struct xfrm_tmpl *tmpl;
++	unsigned int dir;
++
++	if (!list_policy_head) {
++		printk(KERN_INFO "No Security Policies in the system\n");
++		return matched_pol;
++	}
++	x = list_first_entry(list_policy_head,
++				struct xfrm_policy_walk_entry, all);
++	if (!x) {
++		printk(KERN_INFO "Security Policies list is empty\n");
++		return matched_pol;
++	}
++	if (xfrm->props.family == AF_INET) {
++		list_for_each_entry_from(x, list_policy_head, all) {
++			if (x->dead)
++				continue;
++			xp = container_of(x, struct xfrm_policy, walk);
++			tmpl = &xp->xfrm_vec[0];
++			dir = xfrm_policy_id2dir(xp->index);
++			if (dir <= XFRM_POLICY_OUT &&
++				tmpl->id.daddr.a4 == xfrm->id.daddr.a4 &&
++				tmpl->saddr.a4 == xfrm->props.saddr.a4 &&
++				xfrm->props.reqid == tmpl->reqid &&
++				xfrm->props.mode == tmpl->mode) {
++					matched_pol = xp;
++					xfrm->asf_sa_direction = dir;
++					break;
++			}
++		}
++	} else if (xfrm->props.family == AF_INET6) {
++		list_for_each_entry_from(x, list_policy_head, all) {
++			if (x->dead)
++				continue;
++			xp = container_of(x, struct xfrm_policy, walk);
++			tmpl = &xp->xfrm_vec[0];
++			dir = xfrm_policy_id2dir(xp->index);
++			if (dir <= XFRM_POLICY_OUT &&
++				!memcmp(tmpl->id.daddr.a6,
++						xfrm->id.daddr.a6, 16) &&
++				!memcmp(tmpl->saddr.a6,
++						xfrm->props.saddr.a6, 16) &&
++				xfrm->props.reqid == tmpl->reqid &&
++				xfrm->props.mode == tmpl->mode) {
++					matched_pol = xp;
++					xfrm->asf_sa_direction = dir;
++					break;
++			}
++		}
++	} else
++		return NULL;
++
++	return matched_pol;
++}
++EXPORT_SYMBOL(xfrm_state_policy_mapping);
++#endif
+ static LIST_HEAD(xfrm_km_list);
+ 
+ void km_policy_notify(struct xfrm_policy *xp, int dir, const struct km_event *c)

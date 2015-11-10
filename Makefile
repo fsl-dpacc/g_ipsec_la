@@ -12,6 +12,6 @@ all:
 
 clean:
 	make -C $(ASF_DIR) clean
-	rm -rf bin/min
+	-rm -rf bin/min
 	make -C $(VIO_IPSEC_DIR) G_IPSEC_LA=$(VIO_IPSEC_DIR) clean
-	rm bin/virtio_ipsec.ko
+	-rm bin/virtio_ipsec.ko

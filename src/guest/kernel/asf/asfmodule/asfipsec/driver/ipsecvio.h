@@ -31,5 +31,55 @@ int32_t secfp_vio_decap(inSA_t *pSA,
 		void (*cbk)(struct device *dev, u32 *desc,
 			u32 status, void *areq),
 			void *areq);
+
+#define g_ipsec_la_avail_devices_get_num	virt_ipsec_avail_devices_get_num
+#define g_ipsec_la_get_api_version			virt_ipsec_get_api_version
+#define g_ipsec_la_packet_decap				virt_ipsec_packet_decap
+#define g_ipsec_la_packet_encap				virt_ipsec_packet_encap
+#define g_ipsec_la_avail_devices_get_info	virt_ipsec_avail_devices_get_info
+#define g_ipsec_la_open						virt_ipsec_la_open
+#define g_ipsec_la_sa_add					virt_ipsec_sa_add
+#define g_ipsec_la_sa_del					virt_ipsec_sa_del
+
+int32_t virt_ipsec_avail_devices_get_num(uint32_t *nr_devices);
+int32_t virt_ipsec_get_api_version(char *version);
+int32_t	virt_ipsec_packet_decap(
+	struct g_ipsec_la_handle *handle, 
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
+	uint32_t num_sg,	/* number of Scatter Gather elements */
+	struct g_ipsec_la_data *in_data,/* Array of data blocks */
+	struct g_ipsec_la_data *out_data, /* Array of out data blocks*/
+	struct g_ipsec_la_resp_args *resp);
+int32_t virt_ipsec_packet_encap(
+	struct g_ipsec_la_handle *handle, 
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
+	uint32_t num_sg, /* num of Scatter Gather elements */
+	struct g_ipsec_la_data *in_data,
+	/* Array of data blocks */
+	struct g_ipsec_la_data *out_data, 
+	/* Array of output data blocks */
+	struct g_ipsec_la_resp_args *resp);
+int32_t virt_ipsec_avail_devices_get_info(
+	struct g_ipsec_la_avail_devices_get_inargs *in,
+	struct g_ipsec_la_avail_devices_get_outargs *out);
+int32_t virt_ipsec_la_open(
+		enum g_ipsec_la_mode mode, 
+		struct g_ipsec_la_open_inargs *in, 
+		struct g_ipsec_la_open_outargs *out);
+int32_t virt_ipsec_sa_add(
+	struct g_ipsec_la_handle *handle,
+	const struct g_ipsec_la_sa_add_inargs *in,
+	enum g_ipsec_la_control_flags flags,
+	struct g_ipsec_la_sa_add_outargs *out,
+	struct g_ipsec_la_resp_args *resp);
+int32_t virt_ipsec_sa_del(
+	struct g_ipsec_la_handle *handle,
+       const struct g_ipsec_la_sa_del_inargs *in,
+       enum g_ipsec_la_control_flags flags,
+       struct g_ipsec_la_sa_del_outargs *out,
+       struct g_ipsec_la_resp_args *resp);
+
 #endif
 

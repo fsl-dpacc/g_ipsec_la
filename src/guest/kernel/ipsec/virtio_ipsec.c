@@ -1863,7 +1863,7 @@ static inline int32_t virt_ipsec_la_open(
 		 	__FILE__, __func__, __LINE__);
 		return G_IPSEC_LA_FAILURE;
 	}
-	sscanf(ptr, "%d", &index);
+	sscanf(ptr+1, "%d", &index);
 	VIRTIO_IPSEC_DEBUG("%s:%s:%d: Accelerator Index =%d\n", 
 		__FILE__, __func__, __LINE__, index);
 	
@@ -1931,6 +1931,7 @@ static inline int32_t virt_ipsec_la_open(
 	memcpy(app->cb_arg, in->cb_arg, in->cb_arg_len);
 	app->cb_fn = in->cb_fn;
 	app->has_groups = true; /* till the first SA command is sent out without group creation */
+	INIT_LIST_HEAD(&(app->u.no_groups_wrapper.sas));
 	
 	index = safe_ref_array_add(&v_ipsec_apps,app);
 	if (index == VIRTIO_IPSEC_MAX_APPS) {
@@ -3658,7 +3659,7 @@ int32_t virt_ipsec_avail_devices_get_info(
 	struct g_ipsec_la_avail_devices_get_outargs *out)
 {
 	struct v_ipsec_device *dev;
-	u32 ii, num_iter=0;
+	u32 ii = 0, num_iter=0;
 	bool index_found = true;
 
 	if (in->last_device_read)

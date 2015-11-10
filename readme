@@ -1,3 +1,22 @@
+* Patching VM kernel to use ASF fastpath
+
+  Virtio-IPsec-LA uses fastpath software in the guest kernel which can handle forwarding
+  and IPsec functions.  To enable offloading these functions, it inserts the following hooks
+  in Linux
+    - To capture RX packets and TX packets sent directly to the driver, 2 hooks are inserted in
+	  virtio-net driver
+	- To offload allowed flows and learn applicable route info and SAs, hooks are inserted in
+      Linux iptables, conntrack, ip_route and xfrm.
+
+  To add these hooks, apply the patch (g_ipsec_la/src/guest/kernel/as-fastpath.patch) to the kernel
+  tree.  This patch is derived from linux version 4.1.8.  It may be necessary to apply this patch
+  manually.
+  
+  After applying the patch, enable the following options in Linux configuration using menuconfig
+    - Device Drivers / Network device support / Application Specific FastPath
+
+  Rebuild kernel
+ 
 * Build procedure
 
   # Edit g_ipsec_la/build.sh to enter your build env and arch

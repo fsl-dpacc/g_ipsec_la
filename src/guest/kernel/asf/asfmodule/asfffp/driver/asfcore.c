@@ -2200,11 +2200,11 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 		goto ret_pkt;
 	else
 #endif /* (ASF_FEATURE_OPTION > ASF_MINIMUM) */
-/* Subha: 09/10/14 for Forwarding support IPv4  
+/* Subha: 09/10/14 for Forwarding support IPv4 */ 
 		ASFFFPProcessAndSendPkt(anDev->ulVSGId,
 			anDev->ulCommonInterfaceId,
 			abuf, (genericFreeFn_t)ASF_SKB_FREE_FUNC, skb, NULL);
-*/
+/*
 
 	   if (!pASFFWDFn)
 	   {
@@ -2215,7 +2215,8 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 			anDev->ulVSGId, 
 			anDev->ulCommonInterfaceId,
 			abuf,
-			(genericFreeFn_t)ASF_SKB_FREE_FUNC, skb);
+			(genericFreeFn_t)ASF_SKB_FREE_FUNC, skb);a
+*/
 
 	    
 

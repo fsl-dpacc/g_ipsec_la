@@ -338,7 +338,7 @@ ASF_int32_t asfctrl_netns_vsg_init(void)
 	for (ii= 0; ii < asf_max_vsgs; ii++)
 	{
 		netns_vsg[ii] = 0;
-		printk("address of netns_vsg[%d] = %p, value = 0x%x \n", ii, &(netns_vsg[ii]), netns_vsg[ii]);
+		//printk("address of netns_vsg[%d] = %p, value = 0x%x \n", ii, &(netns_vsg[ii]), netns_vsg[ii]);
 	}
 	kmalloc_size = (ASFCTRL_NETNS_VSG_HASH_LIST_SIZE* (sizeof(asfctrl_netns_vsg_hash_node_t )));
 	netns_vsg_hash_list = kmalloc(kmalloc_size, GFP_ATOMIC);
@@ -353,8 +353,8 @@ ASF_int32_t asfctrl_netns_vsg_init(void)
 	{
 		netns_vsg_hash_list[ii].pNext = &(netns_vsg_hash_list[ii]);
 		netns_vsg_hash_list[ii].pPrev = &(netns_vsg_hash_list[ii]); 
-		printk("Next = %p \n", netns_vsg_hash_list[ii].pNext);
-		printk("Prev = %p \n", netns_vsg_hash_list[ii].pPrev);
+		//printk("Next = %p \n", netns_vsg_hash_list[ii].pNext);
+		//printk("Prev = %p \n", netns_vsg_hash_list[ii].pPrev);
 	}
 	spin_lock_init(&netns_vsg_lock);
 

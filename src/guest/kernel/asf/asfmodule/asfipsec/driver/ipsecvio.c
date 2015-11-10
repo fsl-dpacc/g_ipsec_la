@@ -36,7 +36,7 @@ struct asf_vdev_info {
 	struct g_ipsec_la_handle handle;
 };
 
-static struct asf_vdev_info *_asf_device;
+static struct asf_vdev_info *_asf_device = NULL;
 
 void asf_vio_device_unplugged(struct g_ipsec_la_handle *handle,  void *cb_arg)
 {
@@ -109,15 +109,18 @@ void asf_virtio_interface_init()
 	in_open.cb_arg = NULL;
 	in_open.cb_arg_len = 0;
 
+	_asf_device = kzalloc(sizeof(struct g_ipsec_la_device_info)+IPSEC_IFNAMESIZ, GFP_KERNEL);
 	out_open.handle = &(_asf_device->handle);
 	
 		/* Open the device */
 	ret = g_ipsec_la_open(G_IPSEC_LA_INSTANCE_EXCLUSIVE,&in_open, &out_open);
-	if (ret != G_IPSEC_LA_FAILURE) {
+	if (ret != G_IPSEC_LA_SUCCESS) {
 		ASF_VIO_DEBUG("Unable to get an IPsec handle%s:%s:%d \n",
 			__FILE__, __func__, __LINE__);
 		kfree(out.dev_info);
 		kfree(_asf_device);
+		_asf_device = NULL;
+		return;
 	}
 	/* Now we have got the handle: good to go */
 		
@@ -142,6 +145,9 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 	in.num_sas = 1;
 	in.sa_params = &sa_params;
 
+	sa_params.crypto_params.iv = NULL;
+	sa_params.crypto_params.cipher_key= NULL;
+	sa_params.crypto_params.auth_key= NULL;
 	sa_params.spi = pSA->SAParams.ulSPI;
 	sa_params.proto = pSA->SAParams.ucProtocol;
 	sa_params.cmn_flags = 0;
@@ -543,7 +549,6 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 		default:
 			goto api_error;
 		}
-
 
 	ret = g_ipsec_la_sa_add(&_asf_device->handle, &in,0, &out,  NULL);
 	if (ret == 0)

@@ -34,6 +34,7 @@
 #include "ipsfpapi.h"
 #include "ipsecfp.h"
 #include "ipseccmn.h"
+#include "ipsecvio.h"
 
 int  ulMaxVSGs_g = ASF_MAX_VSGS;
 int  ulMaxTunnels_g = SECFP_MAX_NUM_TUNNEL_IFACES;
@@ -2179,6 +2180,8 @@ static int __init ASFIPSec_Init(void)
 
 	//if (secfp_register_proc()) - review
 	//	ASFIPSEC_WARN("Unable to register IPSEC proc");
+
+	asf_virtio_interface_init();
 
 	ASFIPSEC_DEBUG("Exit");
 	return 0;
