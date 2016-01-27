@@ -1,7 +1,6 @@
 #ifndef _VIRTIO_IPSEC_H
 #define _VIRTIO_IPSEC_H
 
-
 #define VIRTIO_ID_IPSEC	13 /* 20 */
 
 /* The feature bitmap for virtio ipsec */
@@ -32,8 +31,15 @@ VIRTIO_RING_F_EVENT_IDX		29
 #define SAFE_REF_ARRAY_GET_MAGIC_NUM(table, index) (table->base[index].magic_num)
 */
 
+#undef printk
+#define VIRTIO_IPSEC_DEBUG		printk
+#define VIRTIO_IPSEC_ENTRY(fmt, arg...)	printk("%s ===entry: "fmt, __func__, ##arg)
+#define VIRTIO_IPSEC_EXIT(fmt, arg...)	printk("%s ===exit: "fmt, __func__, ##arg)
+#define VIRTIO_IPSEC_ERROR(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
+#define VIRTIO_IPSEC_DBG(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
+#define VIRTIO_IPSEC_CHECK(fmt, arg...)	printk("%s/%d: check-"fmt, __func__, __LINE__, ##arg)
 
-
+#define G_IPSEC_LA_INTERNAL_HANDLE_SIZE	G_IPSEC_LA_HANDLE_SIZE
 
 struct safe_ref_array_node {
 	void *data;
@@ -51,7 +57,6 @@ struct safe_ref_array {
 	spinlock_t  lock;
 	bool b_lock;
 };
-
 
 static inline void *safe_ref_get_data(struct safe_ref_array *table, u32 index)
 {
@@ -83,8 +88,6 @@ struct ipsec_queue {
 	/* Copied from virtio-net: need to check: AVS */
 	char name[40];
 };
-
-
 
 struct v_ipsec_sa_hndl {
 	u8 handle[G_IPSEC_LA_SA_HANDLE_SIZE];
@@ -152,12 +155,5 @@ struct virt_ipsec_info {
 	/* CPU hot plug notifier */
 	struct notifier_block nb;
 };
-
-
-
-
-
-
-
 
 #endif

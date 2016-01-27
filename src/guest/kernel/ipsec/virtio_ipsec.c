@@ -29,8 +29,8 @@
 #include <linux/interrupt.h>
 #include <linux/threads.h>
 #include <linux/kernel.h>
-#include <drivers/virtio/virtio_pci_common.h>
-//#include "virtio_pci_common.h"
+//#include <drivers/virtio/virtio_pci_common.h>
+#include "virtio_pci_common.h"
 #include <linux/wait.h>
 #include <linux/cpu.h>
 #include "virtio_ipsec_api.h"
@@ -39,9 +39,6 @@
 
 
 /* Macros */
-#undef printk
-#define VIRTIO_IPSEC_DEBUG printk
-#define G_IPSEC_LA_INTERNAL_HANDLE_SIZE	G_IPSEC_LA_HANDLE_SIZE
 
 /* Enumerations */
 
@@ -52,7 +49,7 @@
 #define VIRTIO_IPSEC_MAX_APPS		128
 #define VIRTIO_IPSEC_MAX_GROUPS		64
 #define VIRTIO_IPSEC_MAX_SAS		8192
-#define EXPAND_HANDLE(ptr)	(u32)ptr[0], (u32)(ptr[1])
+#define EXPAND_HANDLE(ptr)	((u32 *)(ptr))[0], ((u32 *)(ptr))[1]
 
 
 static struct safe_ref_array v_ipsec_devices;
@@ -68,7 +65,6 @@ static struct safe_ref_array v_ipsec_sa_hndl_refs;
 static struct list_head _device_list; 
 static struct spinlock device_list_lock;
 static int num_devices;
-
 
 #define VIRT_IPSEC_MGR_GET_APP(handle)	\
 	 ((*(u32 *)((u8 *)(handle)+4)) == \
@@ -101,8 +97,6 @@ static int num_devices;
 	 ((*(u32 *)((u8 *)(handle)+4)) == \
 		safe_ref_get_magic_num(&v_ipsec_sa_hndl_refs, (*(u32 *)(&handle[0])))) ?	\
 		safe_ref_get_data(&v_ipsec_sa_hndl_refs, (*(u32 *)(&handle[0]))) : NULL		
-
-#define VIRTIO_IPSEC_DEBUG printk
 
 #define GET_INDEX_FROM_HANDLE(handle) \
 	*(u32 *)(&handle[0])
@@ -215,41 +209,80 @@ struct v_ipsec_sa{
 		struct v_ipsec_app_grp_hndl grp_hndl;
 		struct v_ipsec_app_hndl app_hndl;
 	};
-	struct list_head cmd_ctxt;
+	struct list_head cmd_ctxt;           /* list of cmd on this SA */
 	//struct list_head data_ctxt;
 	u32 num_data_ctx;
-	struct v_ipsec_sa_list_hndl list_hdl;
+	struct v_ipsec_sa_list_hndl list_hdl;/* safe-ref to SA safe-ref, why??? */
 	spinlock_t lock;
 };
 
 
 struct v_ipsec_sa_hndl_ref {
 	struct rcu_head rcu;
-	struct list_head link;
-	struct v_ipsec_sa_hndl hndl;
+	struct list_head link;      /* used to link SAs in app or group */
+	struct v_ipsec_sa_hndl hndl;/* safe-ref (index,magic) of SA */
 };
-
 
 struct virt_ipsec_cmd_ctx {
 	bool b_wait;
 	wait_queue_head_t  waitq;
 	bool cond;
-	g_ipsec_la_resp_cbfn cb_fn; /* Response eunction */
-	void *cb_arg;	/* Response callback argument */
-	int32_t cb_arg_len; /* Callback argument length */
-	void *cmd_buffer;	/* Command buffer */
-	int32_t cmd_buffer_len; /* Command buffer length */
+	g_ipsec_la_resp_cbfn cb_fn;/* Response function */
+	void *cb_arg;              /* Response callback argument */
+	int32_t cb_arg_len;        /* Callback argument length */
+	void *cmd_buffer;          /* Command buffer */
+	int32_t cmd_buffer_len;    /* Command buffer length */
 	bool b_group;
 	u8 hndl[G_IPSEC_LA_INTERNAL_HANDLE_SIZE];
 	struct list_head link;
 	void *out_args;
 	u8 *result_ptr;
-	
 };
 
 struct virt_ipsec_notify_cb_info {
 	struct g_ipsec_la_notification_hooks hooks;
 };
+
+void dbg_prt_blk(char *str, void *key, int keylen)
+{
+#define __MAX_WORDS_PER_LINE   8
+    char tstr[9 * __MAX_WORDS_PER_LINE];
+    char *pstr;
+    unsigned char *ptr = key;
+    int jj;
+
+    printk("%s ptr %p len %d\n", str, key, keylen);
+    jj = 0; pstr = tstr;
+    while (keylen-- > 0) {
+        sprintf(pstr, "%02X", *ptr++);
+        ++jj; pstr += 2;
+        if ((jj & 3) == 0) {
+            if ((jj >> 2) == __MAX_WORDS_PER_LINE) {
+                /* print this line */
+                *pstr = '\0'; printk("%s\n", tstr);
+                pstr = tstr; jj = 0;
+            } else {
+                /* add a blank after 4 bytes */
+                *pstr++ = ' ';
+            }
+        }
+    }
+    /* print last line */
+    if (jj) {
+        *pstr = '\0'; printk("%s\n", tstr);
+    }
+}
+EXPORT_SYMBOL(dbg_prt_blk);
+
+#if 0
+struct virt_ipsec_info *g_ipsec_dev = NULL;
+void dbg_prt_info(char *func, int line)
+{
+	printk("%s:%d: ", func, line);
+	dbg_prt_blk("ipsec info:", g_ipsec_dev, sizeof(struct virt_ipsec_info));
+}
+EXPORT_SYMBOL(dbg_prt_info);
+#endif
 
 int32_t safe_ref_array_setup(
 	struct safe_ref_array *table,  
@@ -273,7 +306,7 @@ int32_t safe_ref_array_setup(
 	node[0].next = &(node[1]);
 	for (ii = 1; ii < (num_entries-1); ii++) {
 		node[ii].next = &(node[ii+1]);
-		node[ii+1].prev = &(node[ii]);
+		node[ii].prev = &(node[ii-1]);
 	}
 	/* Set up Last node */
 	node[ii].next = NULL;
@@ -327,8 +360,8 @@ static inline unsigned int safe_ref_array_add(
 		node->next = NULL;
 		node->prev = NULL;
 		node->data = data;
-		table->magic_num = (table->magic_num + 1) == 0 ? 1 :  table->magic_num+1;
 		node->magic_num = table->magic_num;
+		table->magic_num = (table->magic_num + 1) == 0 ? 1 :  table->magic_num+1;
 		index = node - table->base;
 		smp_wmb();
 	} else {
@@ -342,8 +375,6 @@ static inline unsigned int safe_ref_array_add(
 err_max_table:
 	return index;
 }
-
-
 
 static inline void safe_ref_array_node_delete(
 	struct safe_ref_array *table, 
@@ -421,7 +452,7 @@ static inline void add_app_to_dev(struct v_ipsec_device *dev,
 	struct v_ipsec_app_hndl_ref *app_ref) {
 	
 	spin_lock_bh(&dev->lock);
-	list_add_tail(&app_ref->link,&dev->apps);
+	list_add_tail(&app_ref->link, &dev->apps);
 	spin_unlock_bh(&dev->lock);
 }
 
@@ -660,21 +691,19 @@ static void _encap_done(unsigned long cpu)
 	struct v_ipsec_app *app;
 	struct v_ipsec_app_grp *grp;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the lock and dequeue the first queue */
 	spin_lock_bh(&_encap_cleanup_lists[cpu].lock);
-	list->next = _encap_cleanup_lists[cpu].list.next;
-	/* Not needed */
-	list->prev = _encap_cleanup_lists[cpu].list.prev;
+	list = &_encap_cleanup_lists[cpu].list;
 	INIT_LIST_HEAD(&(_encap_cleanup_lists[cpu].list));
 	spin_unlock_bh(&_encap_cleanup_lists[cpu].lock);
 
 	/* Dequeue first item from temporary list */
-	queue = (struct ipsec_queue *)list;
-	do {
+	next_queue = list->next;
+	while (next_queue != list) {
+		queue = (struct ipsec_queue *)next_queue;
 		next_queue = queue->link.next;
-
 		encap_q = queue->vq;
-
 		ipsec_dev = encap_q->vdev->priv;
 		
 		while ((d_ctx = virtqueue_get_buf(encap_q, &len)) != NULL) {
@@ -698,6 +727,7 @@ static void _encap_done(unsigned long cpu)
 			/* Call the callback function Need to fill this up*/
 			d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, ((void *)(d_ctx->hdr.result)));
 		}
+
 		if (virtqueue_enable_cb(encap_q) == true) {
 			/* there are pending buffers; so read them off */ 
 			while ((d_ctx = virtqueue_get_buf(encap_q, &len)) != NULL) {
@@ -720,17 +750,12 @@ static void _encap_done(unsigned long cpu)
 							num_pending_sa_ops_dec(app, grp, sa->in_group);
 					}
 				}
-
 				/* Call the callback function: Need to fill this up */
-				d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)(d_ctx->hdr.result));
+				d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
 			}
 		}
-		queue = (struct ipsec_queue *)next_queue;
-	} while(queue);
+	}
 }
-
-
-
 
 static void _decap_done(unsigned long cpu)
 {
@@ -743,26 +768,22 @@ static void _decap_done(unsigned long cpu)
 	struct v_ipsec_sa *sa;
 	struct v_ipsec_app *app;
 	struct v_ipsec_app_grp *grp;
-	
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the lock and dequeue the first queue */
 	spin_lock_bh(&_decap_cleanup_lists[cpu].lock);
-	list->next = _decap_cleanup_lists[cpu].list.next;
-	
-	/* Not needed */
-	list->prev = _decap_cleanup_lists[cpu].list.prev;
+	list = &_decap_cleanup_lists[cpu].list;
 	INIT_LIST_HEAD(&(_decap_cleanup_lists[cpu].list));
 	spin_unlock_bh(&_decap_cleanup_lists[cpu].lock);
 	
 	/* Dequeue first item from temporary list */
-	queue = (struct ipsec_queue *)list;
-	do {
-
+	next_elem = list->next;
+	while (next_elem != list) {
+		queue = (struct ipsec_queue *)next_elem;
 		next_elem = queue->link.next;
-	
 		decap_q = queue->vq;
-	
 		ipsec_dev = decap_q->vdev->priv;
-			
+
 		while ((d_ctx = virtqueue_get_buf(decap_q, &len)) != NULL) {
 			/* Update any stats: TBD : AVS */
 			sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
@@ -781,10 +802,10 @@ static void _decap_done(unsigned long cpu)
 						num_pending_sa_ops_dec(app, grp, sa->in_group);
 				}
 			}
-	
 			/* Call the callback function Need to fill this up*/
 			d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
 		}
+
 		if (virtqueue_enable_cb(decap_q) == true) {
 				/* there are pending buffers; so read them off */ 
 				while ((d_ctx = virtqueue_get_buf(decap_q, &len)) != NULL) {
@@ -807,16 +828,12 @@ static void _decap_done(unsigned long cpu)
 							num_pending_sa_ops_dec(app, grp, sa->in_group);
 					}
 				}
-	
 				/* Call the callback function: Need to fill this up */
 				d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
 			}
 		}
-		queue = (struct ipsec_queue *)next_elem;
-	} while(queue);
-
+	}
 }
-
 
 static void _init_tasklet_lists(void)
 {
@@ -843,10 +860,14 @@ static void control_job_done(struct virtqueue *c_vq)
 {
 	struct virt_ipsec_info *ipsec_dev = c_vq->vdev->priv;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Disable all the encap_qs for this CPU TBD */
 	virtqueue_disable_cb(c_vq);
-
 	schedule_work(&ipsec_dev->c_work);
+}
+static void notify_done(struct virtqueue *c_vq)
+{
+	VIRTIO_IPSEC_ENTRY("===unexpected===\n");
 }
 
 static void encap_done(struct virtqueue *encap_q)
@@ -854,6 +875,7 @@ static void encap_done(struct virtqueue *encap_q)
 	struct virt_ipsec_info *ipsec_dev = encap_q->vdev->priv;
 	struct ipsec_queue *ipsec_q;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	ipsec_q = &(ipsec_dev->data_q_pair[vq2dataqpair(encap_q)].encap_q); 
 	
 	/* Disable all the encap_qs for this CPU TBD */
@@ -868,7 +890,8 @@ static void decap_done(struct virtqueue *decap_q)
 {
 	struct virt_ipsec_info *ipsec_dev = decap_q->vdev->priv;
 	struct ipsec_queue *ipsec_q;
-	
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	ipsec_q = &(ipsec_dev->data_q_pair[vq2dataqpair(decap_q)].decap_q); 
 	/* Disable all the encap_qs for this CPU TBD */
 	virtqueue_disable_cb(decap_q);
@@ -917,7 +940,7 @@ static inline void sa_flush_list(
 			if (sa == NULL)
 			{
 				VIRTIO_IPSEC_DEBUG(
-				"%s:%s:%d: Unable to parse result for sa_handle :%d:%d\n",
+				"%s:%s:%d: Unable to parse result for sa_handle %d:%d\n",
 				__FILE__, __func__, __LINE__, EXPAND_HANDLE(sa_ref->hndl.handle));
 
 				/* Handle error : TBD */
@@ -1302,8 +1325,8 @@ static int32_t handle_capabilities_get_result(
 	struct virtio_ipsec_ctrl_capabilities *caps;
 	struct virtio_ipsec_ctrl_result *result;
 	struct g_ipsec_la_cap_get_outargs *out_arg;
-	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *group;
+	struct v_ipsec_app *app = NULL;
+	struct v_ipsec_app_grp *group = NULL;
 	struct v_ipsec_device *dev;
 	int32_t ret;
 	
@@ -1373,8 +1396,18 @@ static int32_t handle_capabilities_get_result(
 	/* Asynchronous response */
 	cmd_ctx->cb_fn(cmd_ctx->cb_arg, cmd_ctx->cb_arg_len, out_arg);
 
-	capabilities_get_cleanup(cmd_ctx,app, group);
-
+	if (cmd_ctx->b_group) {
+		if (group == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null group here\n");
+			return G_IPSEC_LA_FAILURE;
+		}
+	} else {
+		if (app == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null app here\n");
+			return G_IPSEC_LA_FAILURE;
+		}
+	}
+	capabilities_get_cleanup(cmd_ctx, app, group);
 	return G_IPSEC_LA_SUCCESS;
 }
 
@@ -1452,19 +1485,17 @@ static int32_t handle_sa_add_result(
 	memcpy(sa->hw_sa_handle, msg_sa->sa_handle, VIRTIO_IPSEC_SA_HANDLE_SIZE);
 
 	ret = virt_ipsec_map_result(result);
-
-	if (cmd_ctx->b_wait == true)
-		return ret;
-
+	VIRTIO_IPSEC_DBG("HW SA hndl 0x%x:%x SW SA handle %d:%d\n",
+		EXPAND_HANDLE(msg_sa->sa_handle), EXPAND_HANDLE(cmd_ctx->hndl));
 	out_arg = (struct g_ipsec_la_sa_add_outargs *)cmd_ctx->out_args;
 	out_arg->result = ret;
 	memcpy(out_arg->handle.ipsec_sa_handle, cmd_ctx->hndl, G_IPSEC_LA_SA_HANDLE_SIZE);
 
 	/* Asynchronous response */
-	cmd_ctx->cb_fn(cmd_ctx->cb_arg, cmd_ctx->cb_arg_len, out_arg);
+	if (cmd_ctx->b_wait == false)
+		cmd_ctx->cb_fn(cmd_ctx->cb_arg, cmd_ctx->cb_arg_len, out_arg);
 
 	sa_add_cleanup(cmd_ctx, app, grp, sa, sa_ref);
-	
 	return G_IPSEC_LA_SUCCESS;
 }
 
@@ -1624,7 +1655,6 @@ void sa_flush_cleanup(
 	struct v_ipsec_app *app, 
 	struct v_ipsec_app_grp *group)
 {
-	
 	/* Remove the command context from the group or application */
 	if(cmd_ctx->b_group== true)
 		remove_cmd_ctx_from_group(group, cmd_ctx);
@@ -1644,8 +1674,8 @@ int32_t handle_sa_flush_result(
 {
 	struct g_ipsec_la_sa_flush_outargs *out_arg;
 	struct virtio_ipsec_ctrl_result *result;
-	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *group;
+	struct v_ipsec_app *app = NULL;
+	struct v_ipsec_app_grp *group = NULL;
 	int32_t ret;
 
 	if (virt_ipsec_msg_sa_flush_parse_result(
@@ -1667,52 +1697,52 @@ int32_t handle_sa_flush_result(
 	if (cmd_ctx->b_group == true) {
 		group = safe_ref_get_data(&v_ipsec_grps, GET_INDEX_FROM_HANDLE(cmd_ctx->hndl));
 		if (group == NULL) {
-		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Unable to parse result for sa_handle :%d:%d\n",
-			__FILE__, __func__, __LINE__, EXPAND_HANDLE(cmd_ctx->hndl));
-
-		/* Handle error : TBD */
+			VIRTIO_IPSEC_DEBUG("%s:%s:%d: Unable to parse result for sa_handle :%d:%d\n",
+				__FILE__, __func__, __LINE__, EXPAND_HANDLE(cmd_ctx->hndl));
+			// TODO: Handle error : TBD
 		}
-	}
-	else {
+	} else {
 		app = safe_ref_get_data(&v_ipsec_apps,
 			GET_INDEX_FROM_HANDLE(cmd_ctx->hndl));
 		if (app == NULL)
 		{
 			VIRTIO_IPSEC_DEBUG("%s:%s:%d: Unable to parse result for sa flush :%d:%d\n",
-			__FILE__, __func__, __LINE__, EXPAND_HANDLE(cmd_ctx->hndl));
-
-		/* Handle error : TBD */
+				__FILE__, __func__, __LINE__, EXPAND_HANDLE(cmd_ctx->hndl));
+			// TODO: Handle error : TBD
 		}
 	}
 	
 	ret = virt_ipsec_map_result(result);
-
 	out_arg = (struct g_ipsec_la_sa_flush_outargs *)cmd_ctx->out_args;
 	out_arg->result = ret;
 
+	if (cmd_ctx->b_group) {
+		if (group == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null group here\n");
+			return G_IPSEC_LA_FAILURE;
+		}
+	} else {
+		if (app == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null app here\n");
+			return G_IPSEC_LA_FAILURE;
+		}
+	}
 	sa_flush_cleanup(cmd_ctx, app, group);
-
 	sa_flush_list(cmd_ctx, app, group);
-
 	if (cmd_ctx->b_wait == true)
 		return ret;
 
-
 	/* Asynchronous response */
 	cmd_ctx->cb_fn(cmd_ctx->cb_arg, cmd_ctx->cb_arg_len, out_arg);
-
 	return G_IPSEC_LA_SUCCESS;
 }
-
-
-
 
 int32_t handle_response(struct virt_ipsec_cmd_ctx *cmd_ctx)
 {
 	struct virtio_ipsec_ctrl_hdr *hdr = (struct virtio_ipsec_ctrl_hdr *)(cmd_ctx->cmd_buffer);
+	int32_t ret = VIRTIO_IPSEC_FAILURE;
 
-	int32_t ret;
-
+	VIRTIO_IPSEC_ENTRY("context %p\n", cmd_ctx);
 	switch (hdr->class) {
 		case VIRTIO_IPSEC_CTRL_GENERIC:	
 			switch(hdr->cmd) {
@@ -1755,7 +1785,8 @@ int32_t handle_response(struct virt_ipsec_cmd_ctx *cmd_ctx)
 		default:
 			break;
 	}
-	return VIRTIO_IPSEC_FAILURE;
+	VIRTIO_IPSEC_EXIT("error %d\n", ret);
+	return ret;
 }
 /* Interface Functions */
 
@@ -1767,31 +1798,27 @@ static void _ipsec_control_job_done(struct work_struct *work)
 	struct virt_ipsec_info *virt_dev =
 		container_of(work, struct virt_ipsec_info, c_work);
 
-	while((cmd_ctx 
-		= virtqueue_get_buf(virt_dev->cvq->vq, &len)) != NULL) {
+	VIRTIO_IPSEC_ENTRY("\n");
+	while ((cmd_ctx = virtqueue_get_buf(virt_dev->cvq->vq, &len)) != NULL) {
 		/* Update any stats : TBD: AVS */
-
 		/* Call the callback function : Need to fill this up */
 		if (cmd_ctx->b_wait == true) {
 			cmd_ctx->cond = true;
 			wake_up_interruptible(&cmd_ctx->waitq);
-		}
-		else { /* Call the callback function */
+		} else { /* Call the callback function */
 			handle_response(cmd_ctx);
 		}
 	}
 	if (virtqueue_enable_cb(virt_dev->cvq->vq) == true) {
 		/* there are pending buffers; so read them off */ 
 		while ((cmd_ctx = virtqueue_get_buf(virt_dev->cvq->vq, &len)) != NULL) {
-		/* Update any stats: TBD: AVS */
-
-		if (cmd_ctx->b_wait == true) {
-			cmd_ctx->cond = true;
-			wake_up_interruptible(&cmd_ctx->waitq);
-		}
-		else {
-			/* Call the callback function: Need to fill this up */
-			handle_response(cmd_ctx);
+			/* Update any stats: TBD: AVS */
+			if (cmd_ctx->b_wait == true) {
+				cmd_ctx->cond = true;
+				wake_up_interruptible(&cmd_ctx->waitq);
+			} else {
+				/* Call the callback function: Need to fill this up */
+				handle_response(cmd_ctx);
 			}
 		}
 	}
@@ -1800,32 +1827,34 @@ static void _ipsec_control_job_done(struct work_struct *work)
 int32_t virt_ipsec_send_cmd(struct virt_ipsec_info *dev, 
 	struct virt_ipsec_cmd_ctx *cmd_ctx)
 {
-
 	struct scatterlist *sgs[1], data;
+	struct virtio_ipsec_ctrl_hdr *hdr = (struct virtio_ipsec_ctrl_hdr *)cmd_ctx->cmd_buffer;
+
+	VIRTIO_IPSEC_ENTRY("dev_info %p class %d cmd %d\n", dev, hdr->class, hdr->cmd);
 	sg_init_one(&data, cmd_ctx->cmd_buffer, cmd_ctx->cmd_buffer_len);
 	sgs[0] = &data;
-	
+
 	/* Need to check if lock is required here */
-	virtqueue_add_sgs(dev->cvq->vq,sgs,0, 1, cmd_ctx, GFP_ATOMIC);
-	
-	if (unlikely(!virtqueue_kick(dev->cvq->vq)))
+	virtqueue_add_sgs(dev->cvq->vq,sgs, 1, 0, cmd_ctx, GFP_ATOMIC);
+
+	// TODO: find why kick does not work - if (unlikely(!virtqueue_kick(dev->cvq->vq)))
+	if (unlikely(!virtqueue_notify(dev->cvq->vq)))
 		return VIRTIO_IPSEC_FAILURE;
 
-	if (cmd_ctx->b_wait == true)
-	{
+	if (cmd_ctx->b_wait == true) {
 		cmd_ctx->cond = false;
 		wait_event_interruptible(cmd_ctx->waitq,cmd_ctx->cond);
 	}
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
- /*
+/*
    * Function Name :
    * Input: 
    * Output: 
    * Description:
    */
-static inline int32_t virt_ipsec_la_open(
+int32_t virt_ipsec_la_open(
 		enum g_ipsec_la_mode mode, 
 		struct g_ipsec_la_open_inargs *in, 
 		struct g_ipsec_la_open_outargs *out)
@@ -1839,7 +1868,7 @@ static inline int32_t virt_ipsec_la_open(
 	u32 magic;
 	u32 *index_ptr;
 
-	
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Validate Vendor id, device id */
 	if ((in->pci_vendor_id != VIRTIO_IPSEC_VENDOR_ID) || (in->device_id != VIRTIO_IPSEC_DEVICE_ID))
 	{
@@ -1857,7 +1886,6 @@ static inline int32_t virt_ipsec_la_open(
 		
 	/* Reach to the '-' in the name */
 	ptr = strchr(in->accl_name, '-');
-		
 	if (ptr == NULL) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d Cannot parse accelerator name\n",
 		 	__FILE__, __func__, __LINE__);
@@ -1868,7 +1896,6 @@ static inline int32_t virt_ipsec_la_open(
 		__FILE__, __func__, __LINE__, index);
 	
 	dev = safe_ref_get_data(&v_ipsec_devices,index);
-	
 	if (dev == NULL) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Cannot access device at index %d\n", __FILE__, __func__,
 			__LINE__, index);
@@ -1899,7 +1926,6 @@ static inline int32_t virt_ipsec_la_open(
 			goto err_fail;
 	}
 
-
 	/* Allocate the application block */
 	app = kzalloc((sizeof(struct v_ipsec_app)+ (strlen(in->app_identity)+1) + in->cb_arg_len), GFP_KERNEL);
 	if (app == NULL)
@@ -1923,7 +1949,6 @@ static inline int32_t virt_ipsec_la_open(
 	*index_ptr = index;
 	*(index_ptr+1) = safe_ref_get_magic_num(&v_ipsec_devices,index);
 
-	
 	strcpy(app->identity, in->app_identity);
 	app->mode = mode;
 	app->num_groups = 0;
@@ -1940,12 +1965,12 @@ static inline int32_t virt_ipsec_la_open(
 		goto err_safe_ref_app;		
 	}
 
-		/* Put app in safe reference array */
+	/* Put app in safe reference array */
 	index_ref = safe_ref_array_add(&v_ipsec_app_hndl_refs, app_ref);
 	if (index_ref == VIRTIO_IPSEC_MAX_APPS) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d:Exceeding Max applications\n", __FILE__, __func__, __LINE__);
 		goto err_safe_ref_app_ref;
-		}
+	}
 
 	/* Put the app index and magic number in app ref */
 	index_ptr = (u32 *)&(app_ref->hndl.handle[0]);
@@ -1953,42 +1978,38 @@ static inline int32_t virt_ipsec_la_open(
 	magic = *(index_ptr+1) = safe_ref_get_magic_num(&v_ipsec_apps, index);
 	INIT_LIST_HEAD(&app_ref->link);
 
-
 	/* Put the app handle index and reference number in app structure */
 	index_ptr = (u32 *)&(app->list_hndl.handle[0]);
 	*index_ptr = index_ref;
-	magic = *(index_ptr +1) = safe_ref_get_magic_num(&v_ipsec_app_hndl_refs, index_ref);
-	
+	*(index_ptr +1) = safe_ref_get_magic_num(&v_ipsec_app_hndl_refs, index_ref);
 
 	/* Add application to the device list */
 	add_app_to_dev(dev, app_ref);
-	
+
 	index_ptr = (u32 *)&(out->handle->handle[0]);
 	*index_ptr = index;
-	*(index_ptr+1)= magic;
+	*(index_ptr + 1) = magic;
+	index_ptr = (u32 *)&(out->handle->group_handle[0]);
+	*index_ptr = G_IPSEC_LA_GROUP_INVALID;
 
+	VIRTIO_IPSEC_ERROR("dev %p: app %p opened\n", dev, app);
 	return VIRTIO_IPSEC_SUCCESS;
 
 err_fail:
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -EPERM;
 
 err_safe_ref_app_ref:
 	safe_ref_array_node_delete(&v_ipsec_app_hndl_refs, index, virt_ipsec_free);
-
 err_safe_ref_app:
 	kfree(app_ref);
-	
 err_app_hndl_ref:
 	kfree(app);
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -ENOMEM;
 }
-
-
-
-
-
-
-
+EXPORT_SYMBOL(virt_ipsec_la_open);
+	
 /* API Functions */
 int32_t virt_ipsec_group_add(
 	struct g_ipsec_la_handle *handle,
@@ -2011,6 +2032,7 @@ int32_t virt_ipsec_group_add(
 	u8 *result_ptr;
 	int32_t ret;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	app = VIRT_IPSEC_MGR_GET_APP(handle->handle);
 	if (app == NULL)
 	{
@@ -2164,7 +2186,6 @@ err_g_handle_info:
 	return -ENOMEM;
 }
 
-
 int32_t virt_ipsec_sa_add(
 	struct g_ipsec_la_handle *handle,
 	const struct g_ipsec_la_sa_add_inargs *in,
@@ -2175,7 +2196,7 @@ int32_t virt_ipsec_sa_add(
 	/* Get the handles */
 	struct v_ipsec_device *dev;
 	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *group;
+	struct v_ipsec_app_grp *group = NULL;
 	struct v_ipsec_sa *sa;
 	struct v_ipsec_sa_hndl_ref *sa_ref;
 	struct virt_ipsec_cmd_ctx *cmd_ctx;
@@ -2189,8 +2210,7 @@ int32_t virt_ipsec_sa_add(
 	int32_t ret;
 	u8 *result_ptr;
 
-
-	
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Validate input arguments */
 	if ((in->dir != G_IPSEC_LA_SA_INBOUND) && (in->dir != G_IPSEC_LA_SA_OUTBOUND))
 	{
@@ -2226,6 +2246,7 @@ int32_t virt_ipsec_sa_add(
 				EXPAND_HANDLE(handle->group_handle));
 		return VIRTIO_IPSEC_FAILURE;
 	}	
+	VIRTIO_IPSEC_DBG("dev %p app %p group 0x%x\n", dev, app, *group_index);
 
 	/* Need to check feature bits for compatibility 
 	if ((in->sa_params->crypto_params.auth_algo == G_IPSEC_LA_AUTH_ALGO_NONE) &&
@@ -2247,7 +2268,7 @@ int32_t virt_ipsec_sa_add(
 		goto err_sa_ref_alloc;
 
 	init_rcu_head(&sa_ref->rcu);
-
+	INIT_LIST_HEAD(&sa_ref->link);
 
 	/* allocate for the context */
 	cmd_ctx = kzalloc(sizeof(struct virt_ipsec_cmd_ctx) + 
@@ -2260,17 +2281,15 @@ int32_t virt_ipsec_sa_add(
 	spin_lock_init(&sa->lock);
 
 	/* Assign APP Handle */
-	if (*group_index != G_IPSEC_LA_GROUP_INVALID) {  /* part of group */
+	if (group) {  /* part of group */
 		sa->in_group = true;
 		memcpy(sa->grp_hndl.handle, handle->group_handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
-	}
-	else {
+	} else {
 		sa->in_group = false;
 		memcpy(sa->app_hndl.handle, handle->handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
 	}
-	
 	if(virt_ipsec_msg_sa_add(
-		(*group_index != 0) ? group->hw_handle : 0,
+		sa->in_group ? group->hw_handle : NULL,
 		in, &len, &msg, &result_ptr)!= VIRTIO_IPSEC_SUCCESS)
 	{
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Message Framing failed:handle:%d:%d\n",
@@ -2280,38 +2299,33 @@ int32_t virt_ipsec_sa_add(
 
 	/* Allocate an index in safe  reference array */
 	index = safe_ref_array_add(&v_ipsec_sas,(void *)sa);
-	if (index == VIRTIO_IPSEC_MAX_GROUPS) {
+	if (index == VIRTIO_IPSEC_MAX_SAS) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d:Exceeding Max SAs\n", __FILE__, __func__, __LINE__);
 		goto err_safe_ref_sa;		
 	}
 
 	index_ref = safe_ref_array_add(&v_ipsec_sa_hndl_refs, (void *)sa_ref);
-	if (index == VIRTIO_IPSEC_MAX_GROUPS) {
+	if (index_ref == VIRTIO_IPSEC_MAX_SAS) {
 			VIRTIO_IPSEC_DEBUG("%s:%s:%d:Exceeding Max SAs\n", __FILE__, __func__, __LINE__);
 			goto err_safe_ref_sa_ref;		
-		}
-
+	}
 
 	/* Update sa_ref */
 	ptr = (uint32_t *)(sa_ref->hndl.handle);
 	*ptr = index;
 	*(ptr+1) = safe_ref_get_magic_num(&v_ipsec_sas, index);
 
-
 	/* Update the sa with the list hndl */
 	ptr = (u32 *)&(sa->list_hdl.handle[0]);
 	*ptr = index_ref;
 	*(ptr +1) = safe_ref_get_magic_num(&v_ipsec_sa_hndl_refs, index_ref);
 
-	/* Do it after getting result from hw
-	 add the sa to app sa list or group sa list */ 
+	// TODO: do this after getting result from hw
+	/* add the sa to app sa list or group sa list
 	if (sa->in_group == false)
-		/* Add to app sa list: No groups 
 		add_sa_to_app(app,sa_ref);
 	else
-		add_sa_to_group(group,sa_ref);
-	*/
-
+		add_sa_to_group(group,sa_ref); */
 
 	/* Update command context block */
 	cmd_ctx->cb_arg = (u8 *)(cmd_ctx) + sizeof(struct virt_ipsec_cmd_ctx);
@@ -2323,32 +2337,28 @@ int32_t virt_ipsec_sa_add(
 
 	add_cmd_ctx_to_sa(sa, cmd_ctx);
 	num_pending_sa_ops_inc(app, group, sa);
-	
-	if (flags & G_IPSEC_LA_CTRL_FLAG_ASYNC)
-	{
+
+	VIRTIO_IPSEC_DBG("cmd_ctx %p saref %d:%d sarefref %d:%d\n", cmd_ctx,
+		EXPAND_HANDLE(sa_ref->hndl.handle), EXPAND_HANDLE(sa->list_hdl.handle));
+	if (flags & G_IPSEC_LA_CTRL_FLAG_ASYNC) {
 		cmd_ctx->b_wait = false;
 		cmd_ctx->cb_fn = resp->cb_fn;
 		memcpy(cmd_ctx->cb_arg, resp->cb_arg, resp->cb_arg_len);
 		cmd_ctx->cb_arg_len = resp->cb_arg_len;
-		
-	}
-	else
-	{
+	} else {
 		cmd_ctx->b_wait = true;
 		/* Initialize wait queue */
 		init_waitqueue_head(&cmd_ctx->waitq);
 	}
 
 	ret = virt_ipsec_send_cmd(dev->info, cmd_ctx);
-
-	if (flags & G_IPSEC_LA_CTRL_FLAG_ASYNC)
+	if (ret || (flags & G_IPSEC_LA_CTRL_FLAG_ASYNC))
 		return ret;
 
 	/* Synchronous mode */
 	ret = handle_response(cmd_ctx);
 	//memcpy(out->handle, sa_ref->hndl.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
 	
-	sa_add_cleanup(cmd_ctx,app, group,sa,sa_ref);
 	return ret;
 
 err_safe_ref_sa_ref:
@@ -2371,12 +2381,14 @@ err_sa_alloc:
 
 	
 }
-
+EXPORT_SYMBOL(virt_ipsec_sa_add);
 
 int32_t virt_ipsec_get_api_version(char *version)
 {
-	return VIRTIO_IPSEC_FAILURE;
+	strcpy(version, "0.1");
+	return 0;
 }
+EXPORT_SYMBOL(virt_ipsec_get_api_version);
 
 int32_t virt_ipsec_group_delete(
 	struct g_ipsec_la_handle *handle,
@@ -2397,6 +2409,7 @@ int32_t virt_ipsec_group_delete(
 	int32_t ret;
 	u8 *result_ptr;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	app = safe_ref_get_data(&v_ipsec_apps,*app_index);
 	if (app == NULL)
 	{
@@ -2522,7 +2535,8 @@ int32_t virt_ipsec_la_close(
 	struct v_ipsec_app_hndl_ref *app_ref;
 	struct v_ipsec_device *dev;
 	u32 index, index_ref;
-	
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the App */
 	app = VIRT_IPSEC_MGR_GET_APP(handle->handle);
 	if (app == NULL)
@@ -2585,11 +2599,9 @@ int32_t virt_ipsec_la_close(
 	safe_ref_array_node_delete(&v_ipsec_app_hndl_refs, index_ref, virt_ipsec_free);
 	
 	return G_IPSEC_LA_SUCCESS;
-			
 }
 
 /*
- * 
  * Description: Frame a message to read the underlying capabilities
  * Handle the response sync or async
  */
@@ -2610,6 +2622,7 @@ int32_t virt_ipsec_capabilities_get(
 	u8 *result_ptr;
 	int32_t ret;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the app handle */
 	app = VIRT_IPSEC_MGR_GET_APP(handle->handle);
 	if (app == NULL)
@@ -2732,6 +2745,7 @@ int32_t virt_ipsec_notification_hooks_register(
 	struct virt_ipsec_notify_cb_info *hooks_holder;
 	struct g_ipsec_la_notification_hooks *hooks;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the app instance */
 	app = VIRT_IPSEC_MGR_GET_APP(handle->handle);
 	if (app == NULL)
@@ -2812,6 +2826,8 @@ int32_t virt_ipsec_notifications_hook_deregister(
 	struct v_ipsec_app_grp *group;
 	u32 *group_index = (u32 *)&(handle->group_handle[0]);
 	//struct virt_ipsec_notify_cb_info *hooks;
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the app instance */
 	app = VIRT_IPSEC_MGR_GET_APP(handle->handle);
 	if (app == NULL)
@@ -2851,7 +2867,7 @@ int32_t virt_ipsec_sa_mod(
      struct g_ipsec_la_resp_args *resp)
 {
 	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *group;
+	struct v_ipsec_app_grp *group = NULL;
 	struct v_ipsec_device *dev;
 	struct v_ipsec_sa *sa;
 	struct v_ipsec_sa_hndl_ref *sa_ref;
@@ -2863,7 +2879,8 @@ int32_t virt_ipsec_sa_mod(
 	u32 *g_hw_handle;
 	int32_t ret;
 	u8 *result_ptr;
-	
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	app = safe_ref_get_data(&v_ipsec_apps,*app_index);
 	if (app == NULL)
 	{
@@ -2916,12 +2933,15 @@ int32_t virt_ipsec_sa_mod(
 	if (cmd_ctx == NULL)
 		goto err_ctxt;
 
-
-	if (sa->in_group == true)
+	g_hw_handle = NULL;
+	if (sa->in_group == true) {
+		if (group == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null group here\n");
+			goto err_ctxt;
+		}
 		g_hw_handle = group->hw_handle;
-	else 
-		g_hw_handle = NULL;
-	
+	}
+
 	if (virt_ipsec_msg_sa_mod
 		(g_hw_handle, sa->hw_sa_handle, in, &len,&msg,
 		&result_ptr)!= VIRTIO_IPSEC_SUCCESS)	
@@ -2979,7 +2999,7 @@ err_ctxt:
 	
 }
 
-int32_t g_ipsec_la_sa_del(
+int32_t virt_ipsec_sa_del(
 	struct g_ipsec_la_handle *handle,
        const struct g_ipsec_la_sa_del_inargs *in,
        enum g_ipsec_la_control_flags flags,
@@ -2987,7 +3007,7 @@ int32_t g_ipsec_la_sa_del(
        struct g_ipsec_la_resp_args *resp) 
 {
 	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *group;
+	struct v_ipsec_app_grp *group = NULL;
 	struct v_ipsec_device *dev;
 	struct v_ipsec_sa *sa;
 	struct v_ipsec_sa_hndl_ref *sa_ref;
@@ -2999,6 +3019,7 @@ int32_t g_ipsec_la_sa_del(
 	int32_t ret;
 	u32 len;
 	
+	VIRTIO_IPSEC_ENTRY("\n");
 	app = safe_ref_get_data(&v_ipsec_apps,*app_index);
 	if (app == NULL)
 	{
@@ -3057,12 +3078,14 @@ int32_t g_ipsec_la_sa_del(
 	if (cmd_ctx == NULL)
 		goto err_context;
 
-
-	if (sa->in_group == true)
+	g_hw_handle = NULL;
+	if (sa->in_group == true) {
+		if (group == NULL) {
+			VIRTIO_IPSEC_ERROR("===expected non-null group here\n");
+			goto err_context;
+		}
 		g_hw_handle = group->hw_handle;
-	else 
-		g_hw_handle = NULL;
-	
+	}
 	
 	if (virt_ipsec_msg_sa_del
 		(g_hw_handle, sa->hw_sa_handle, in, &len,&msg,
@@ -3119,10 +3142,10 @@ err_msg:
 err_context:
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(virt_ipsec_sa_del);
 
-
-
-int32_t g_ipsec_la_sa_flush(
+#ifdef _NOT_USED_
+int32_t virt_ipsec_sa_flush(
 	struct g_ipsec_la_handle *handle,
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_flush_outargs *out,
@@ -3139,7 +3162,8 @@ int32_t g_ipsec_la_sa_flush(
 	u8 *msg, *result_ptr;
 	u32 *g_hw_handle;
 	int32_t ret;
-	
+
+	VIRTIO_IPSEC_ENTRY("\n");
 	app = safe_ref_get_data(&v_ipsec_apps,*app_index);
 	if (app == NULL)
 	{
@@ -3188,10 +3212,8 @@ int32_t g_ipsec_la_sa_flush(
 	if (cmd_ctx == NULL)
 		goto err_ctx;
 
-
 	if (virt_ipsec_msg_sa_flush(g_hw_handle, &len,&msg,
 		&result_ptr)!= VIRTIO_IPSEC_SUCCESS)	
-		
 	{
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Message creation failure (handle=%d:%d\n", 
 			__FILE__, __func__, __LINE__, EXPAND_HANDLE(handle->handle));
@@ -3251,15 +3273,16 @@ err_ctx:
 	return -ENOMEM;
 
 }
+#endif
 
-
-int32_t g_ipsec_la_sa_get(
+int32_t virt_ipsec_sa_get(
 	struct g_ipsec_la_handle *handle,
 	const struct g_ipsec_la_sa_get_inargs *in,
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_get_outargs *out,
 	struct g_ipsec_la_resp_args *resp){
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	return VIRTIO_IPSEC_FAILURE;
 }
 
@@ -3269,9 +3292,9 @@ int32_t virt_ipsec_packet_encap(
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
 	uint32_t num_sg, /* num of Scatter Gather elements */
-	struct g_ipsec_la_data in_data[],
+	struct g_ipsec_la_data *in_data,
 	/* Array of data blocks */
-	struct g_ipsec_la_data out_data[], 
+	struct g_ipsec_la_data *out_data, 
 	/* Array of output data blocks */
 	struct g_ipsec_la_resp_args *resp
 	)
@@ -3295,6 +3318,7 @@ int32_t virt_ipsec_packet_encap(
 	u32 *group_index = (u32 *)&(handle->group_handle[0]);
 	int32_t ret;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	if (resp->cb_arg_len > VIRTIO_IPSEC_MAX_CB_ARG_SIZE)
 		goto api_err;
 
@@ -3311,7 +3335,6 @@ int32_t virt_ipsec_packet_encap(
 	}
 
 	if (*group_index != G_IPSEC_LA_GROUP_INVALID) { /* valid group index */
-
 		group = safe_ref_get_data(&v_ipsec_grps, *group_index);
 		if (group == NULL)	{
 			VIRTIO_IPSEC_DEBUG("%s:%s:%d: Invalid: handle A:%d:%d [G]:%d:%d\n",
@@ -3320,8 +3343,7 @@ int32_t virt_ipsec_packet_encap(
 			return VIRTIO_IPSEC_FAILURE;
 		}
 		g_hw_handle = group->hw_handle;
-	}
-	else  {
+	} else {
 		group = NULL;
 		g_hw_handle = NULL;
 	}
@@ -3332,8 +3354,9 @@ int32_t virt_ipsec_packet_encap(
 				EXPAND_HANDLE(handle->group_handle));
 		return VIRTIO_IPSEC_FAILURE;
 	}	
-
 	ipsec_dev = dev->info;
+	VIRTIO_IPSEC_DBG("dev %p app %p group 0x%x sa_hdl 0x%x:0x%x\n", dev, app,
+		*group_index, EXPAND_HANDLE(sa_handle->ipsec_sa_handle));
 
 	sa = VIRT_IPSEC_MGR_GET_SA(sa_handle->ipsec_sa_handle);
 	if (sa == NULL) {
@@ -3353,39 +3376,37 @@ int32_t virt_ipsec_packet_encap(
 	if (ipsec_dev->num_q_pairs_per_vcpu != 0) {
 		vars = per_cpu_ptr(ipsec_dev->dq_per_cpu_vars, smp_processor_id());
 		max = ipsec_dev->num_q_pairs_per_vcpu;
-	}
-	else {
+	} else {
 		vars = ipsec_dev->dq_per_cpu_vars;
 		max = ipsec_dev->num_queues/2;
 		b_lock = true;
 	}
 	encap_q_pair = &(ipsec_dev->data_q_pair[vars->data_q_pair_index_cur_encap]);
 	vars->data_q_pair_index_cur_encap++;
-	if ((vars->data_q_pair_index_cur_encap - vars->data_q_pair_index_start_encap) >
-		max) {
+	if ((vars->data_q_pair_index_cur_encap - vars->data_q_pair_index_start_encap) >= max)
 		vars->data_q_pair_index_cur_encap = vars->data_q_pair_index_start_encap;
-	}
-	
+
 	d_ctx = encap_q_pair->encap_ctx;
 	hdr = &((d_ctx + encap_q_pair->encap_q_index_cur)->hdr);
 	encap_q_pair->encap_q_index_cur++;
 	if (encap_q_pair->encap_q_index_cur == encap_q_pair->encap_q_index_max)
 		encap_q_pair->encap_q_index_cur = 0;
-		
-	memcpy(hdr->group_handle, g_hw_handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
+
+	if (g_hw_handle)
+		memcpy(hdr->group_handle, g_hw_handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
 	memcpy(hdr->sa_context_handle, sa->hw_sa_handle, VIRTIO_IPSEC_SA_HANDLE_SIZE);
 	hdr->num_input_buffers = num_sg;
 	hdr->input_data_length = 0;
 	for (i=0; i < hdr->num_input_buffers; i++)
-	{
 		hdr->input_data_length += in_data[i].length;
-	}
 	hdr->num_output_buffers = num_sg;
 	hdr->output_data_length = 0;
 	for (i=0; i < hdr->num_output_buffers; i++)
-	{
 		hdr->output_data_length += out_data[i].length;
-	}
+	VIRTIO_IPSEC_CHECK("HWhdl 0x%x:%x sgs %d len in/out %d/%d\n",
+		EXPAND_HANDLE(sa->hw_sa_handle), num_sg,
+		hdr->input_data_length, hdr->output_data_length);
+
 	d_ctx->cb_fn = resp->cb_fn;
 	d_ctx->cb_arg_len = resp->cb_arg_len;
 	memcpy(d_ctx->cb_arg, resp->cb_arg, resp->cb_arg_len);
@@ -3396,37 +3417,41 @@ int32_t virt_ipsec_packet_encap(
 	/* Need to see if we can get the headroom in the first buffer */
 	sg_set_buf(&(encap_q_pair->encap_q.sg[0]), hdr, sizeof(struct virtio_ipsec_hdr));
 	for (i=1; i < num_sg; i++)
-	{
 		sg_set_buf(&(encap_q_pair->encap_q.sg[i]),in_data[i].buffer,in_data[i].length);
-	}
 	for (; i < num_sg; i++)
-	{
 		sg_set_buf(&(encap_q_pair->encap_q.sg[i]), out_data[i].buffer, out_data[i].length);
-	}
 	pending_data_blocks_inc(sa);
 	num_pending_sa_ops_inc(app, group, sa);
 
 	ret = virtqueue_add_sgs(encap_q_pair->encap_q.vq, encap_q_pair->encap_q.sg_ptr,
 		num_sg, num_sg, d_ctx, GFP_ATOMIC);
+	if (ret != VIRTIO_IPSEC_SUCCESS)
+		goto err;
 
-	if (ret != VIRTIO_IPSEC_SUCCESS) {
-		pending_data_blocks_dec(sa);
-		num_pending_sa_ops_dec(app, group, sa);
-	}
+	// TODO: find why kick does not work - if (unlikely(!virtqueue_kick(dev->cvq->vq)))
+	if (likely(virtqueue_notify(encap_q_pair->encap_q.vq)))
+		goto done;
+err:
+	pending_data_blocks_dec(sa);
+	num_pending_sa_ops_dec(app, group, sa);
+	VIRTIO_IPSEC_EXIT("failed\n");
+done:
 	return ret;
 	
 api_err:
+	VIRTIO_IPSEC_EXIT("api error\n");
 	return -1;		
 
 }
+EXPORT_SYMBOL(virt_ipsec_packet_encap);
 
 int32_t	virt_ipsec_packet_decap(
 	struct g_ipsec_la_handle *handle, 
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
 	uint32_t num_sg,	/* number of Scatter Gather elements */
-	struct g_ipsec_la_data in_data[],/* Array of data blocks */
-	struct g_ipsec_la_data out_data[], /* Array of out data blocks*/
+	struct g_ipsec_la_data *in_data,/* Array of data blocks */
+	struct g_ipsec_la_data *out_data, /* Array of out data blocks*/
 	struct g_ipsec_la_resp_args *resp
 	)
 {
@@ -3449,6 +3474,7 @@ int32_t	virt_ipsec_packet_decap(
 	int i;
 	int32_t ret;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	/* API Checks */
 	if (resp->cb_arg_len > VIRTIO_IPSEC_MAX_CB_ARG_SIZE)
 		goto api_err;
@@ -3571,10 +3597,13 @@ int32_t	virt_ipsec_packet_decap(
 		pending_data_blocks_dec(sa);
 		num_pending_sa_ops_dec(app, group, sa);
 	}
+	else VIRTIO_IPSEC_EXIT("success\n");
+
 	return ret;
 api_err:
 	return -1;
 }
+EXPORT_SYMBOL(virt_ipsec_packet_decap);
 
 
 static int virtio_ipsec_find_vqs(struct virtio_device *vdev,
@@ -3588,16 +3617,11 @@ static int virtio_ipsec_find_vqs(struct virtio_device *vdev,
 					 names));
 
 #if 0
-
-
-	
 	/* Try MSI-X with one vector per queue */
 	err = vp_try_to_find_vqs(vdev, nvqs, vqs, callbacks,  names, true, true);
 	if (!err)
 		return 0;
-
 	/*
-
 	if (num_vq_pairs_per_vcpu)
 	{
 		err = vp_try_to_find_vqs_ipsec(vdev, n_ctrl_vqs, n_notify_vqs, n_data_vq_pairs, 
@@ -3627,14 +3651,15 @@ int32_t virt_ipsec_add_to_available_list(struct v_ipsec_device *v_ipsec_dev)
 	INIT_LIST_HEAD(&v_ipsec_dev->apps);
 
 	/* add it the safe reference array */
-	index = safe_ref_array_add(&v_ipsec_devices ,v_ipsec_dev);
-	if (index == VIRTIO_IPSEC_MAX_GROUPS) {
+	index = safe_ref_array_add(&v_ipsec_devices, v_ipsec_dev);
+	if (index == VIRTIO_IPSEC_MAX_DEVICES) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d:Exceeding Max Devicess\n",
 			__FILE__, __func__, __LINE__);
 		return VIRTIO_IPSEC_FAILURE;		
 	}
 	sprintf(v_ipsec_dev->info->name, "%s%3d", "ipsec-", index);
-			
+	printk("virtio-ipsec dev %p ipsec-%d created\n", v_ipsec_dev, index);
+
 	spin_lock_bh(&device_list_lock);
 	list_add(&(v_ipsec_dev->link), _device_list.prev);
 	num_devices++;
@@ -3643,16 +3668,12 @@ int32_t virt_ipsec_add_to_available_list(struct v_ipsec_device *v_ipsec_dev)
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
-
-
-
 int32_t virt_ipsec_avail_devices_get_num(uint32_t *nr_devices) 
 {
 	*nr_devices = num_devices;
 	return VIRTIO_IPSEC_SUCCESS;
 }
-
-
+EXPORT_SYMBOL(virt_ipsec_avail_devices_get_num);
 
 int32_t virt_ipsec_avail_devices_get_info(
 	struct g_ipsec_la_avail_devices_get_inargs *in,
@@ -3662,12 +3683,14 @@ int32_t virt_ipsec_avail_devices_get_info(
 	u32 ii = 0, num_iter=0;
 	bool index_found = true;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	if (in->last_device_read)
 		index_found = false;
 	
 	do {
 		if ((num_iter > 0) && (index_found == false)) {
 			/* devce reference invalid */
+			VIRTIO_IPSEC_EXIT("failed\n");
 			return VIRTIO_IPSEC_FAILURE;
 		}
 		spin_lock_bh(&device_list_lock);
@@ -3682,12 +3705,10 @@ int32_t virt_ipsec_avail_devices_get_info(
 					dev = list_next_entry(dev,link);
 					spin_unlock_bh(&device_list_lock);
 					continue;
-				}
-				else {
+				} else {
 					num_iter++;
 				}
-			} 
-			else {
+			} else {
 				if (dev->mode == G_IPSEC_LA_INSTANCE_EXCLUSIVE) { /* skip */
 					continue;
 				}
@@ -3706,9 +3727,10 @@ int32_t virt_ipsec_avail_devices_get_info(
 			}
 		}
 	}while(1);
+	VIRTIO_IPSEC_EXIT("success\n");
 	return VIRTIO_IPSEC_SUCCESS;
 }
-
+EXPORT_SYMBOL(virt_ipsec_avail_devices_get_info);
 
 #if 0
 #define G_IPSEC_APP_GRP_NAME_SIZE 256
@@ -3728,8 +3750,6 @@ int32_t virt_ipsec_get_available_devices(struct g_ipsec_la_get_available_list_in
 	struct g_ipsec_la_get_available_list_outargs *out)
 {
 }
-#endif
-
 
 int32_t virt_ipsec_remove_from_list(struct virt_ipsec_info *dev)
 {
@@ -3752,9 +3772,7 @@ int32_t virt_ipsec_remove_from_list(struct virt_ipsec_info *dev)
 
 	return VIRTIO_IPSEC_SUCCESS;
 }
-
-
-
+#endif
 
 static int virtipsec_alloc_queues(struct virt_ipsec_info *ipsec_dev)
 {
@@ -3848,7 +3866,6 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 	if (!vqs)
 		goto err_vq;
 
-
 	callbacks = kmalloc(total_vqs * sizeof(*callbacks), GFP_KERNEL);
 	if (!callbacks)
 		goto err_callback;
@@ -3857,16 +3874,14 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 	if (!names)
 		goto err_names;
 
-
 	names[0] = "control";
-	if (ipsec_dev->b_notify_q)
-		names[total_vqs-1] = "notify";
-
 	callbacks[0] = control_job_done;
+	if (ipsec_dev->b_notify_q) {
+		names[total_vqs-1] = "notify";
+		callbacks[total_vqs-1] = notify_done;
+	}
 
 	max_queue_pairs = ipsec_dev->num_queues/2;
-
-	
 	for (i=0; i < max_queue_pairs; i++)
 	{
 		data_q_pair = ipsec_dev->data_q_pair+i;
@@ -3880,29 +3895,24 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 		names[encap2vq(i)] = data_q_pair->encap_q.name;
 	}
 
-		
 	ret = virtio_ipsec_find_vqs(ipsec_dev->vdev, 
 		1, ((ipsec_dev->b_notify_q == true) ? 1 : 0),
 		max_queue_pairs, ipsec_dev->num_q_pairs_per_vcpu, 
 		vqs, callbacks, names);
-
 	if (ret)
 		goto err_find;
 
-
-	
 	for (i=0; i < max_queue_pairs; i++)
 	{
+		printk("vq[%d] decap %p encap %p\n", i, vqs[decap2vq(i)], vqs[encap2vq(i)]);
 		ipsec_dev->data_q_pair[i].decap_q.vq = vqs[decap2vq(i)];
 		ipsec_dev->data_q_pair[i].encap_q.vq = vqs[encap2vq(i)];
-
-		
 	}
 
+	printk("cvq %p nvq %p\n", vqs[0], vqs[total_vqs-1]);
 	ipsec_dev->cvq->vq = vqs[0];
 	if (ipsec_dev->b_notify_q)
 		ipsec_dev->nvq->vq = vqs[total_vqs-1];
-
 
 	/* Allocate per CPU variables or global ones */
 	if (ipsec_dev->num_q_pairs_per_vcpu != 0) {
@@ -3914,36 +3924,31 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 			vars->data_q_pair_index_start_encap = i;
 			vars->data_q_pair_index_cur_encap = i;
 			i+= (ipsec_dev->num_q_pairs_per_vcpu);
-			}
 		}
-	else {
-		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_start_decap = i;
-		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_cur_decap = i;
-		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_start_encap = i;
-		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_cur_encap = i;
+	} else {
+		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_start_decap = 0;
+		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_cur_decap = 0;
+		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_start_encap = 0;
+		ipsec_dev->dq_per_cpu_vars->data_q_pair_index_cur_encap = 0;
 	}
-
-		
-	
 
 	/* Allocate the command and data hdr blocks */
 	vp_dev =  to_vp_device(ipsec_dev->vdev);
-	//container_of(ipsec_dev->vdev, struct virtio_pci_device, ipsec_dev->vdev);
 
-		
 	for (i=0; i < max_queue_pairs; i++) {
+		printk("vpdev.vq pair %d decap %p size %d encap %p size %d\n", i,
+			vp_dev->vqs[decap2vq(i)]->vq, vp_dev->vqs[decap2vq(i)]->num,
+			vp_dev->vqs[encap2vq(i)]->vq, vp_dev->vqs[encap2vq(i)]->num);
+
 		info = vp_dev->vqs[decap2vq(i)];
-		
 		ipsec_dev->data_q_pair[i].decap_ctx = (struct virt_ipsec_data_ctx *)kmalloc(
-			(sizeof(struct virt_ipsec_data_ctx)*info->num), GFP_KERNEL);
+			sizeof(struct virt_ipsec_data_ctx) * info->num, GFP_KERNEL);
 		if (!(ipsec_dev->data_q_pair[i].decap_ctx))
 			goto err_ctx;
 
-		i++;
-		info = vp_dev->vqs[decap2vq(i)];
-
+		info = vp_dev->vqs[encap2vq(i)];
 		ipsec_dev->data_q_pair[i].encap_ctx = (struct virt_ipsec_data_ctx *)kmalloc(
-			(sizeof(struct virt_ipsec_data_ctx)*info->num), GFP_KERNEL);
+			sizeof(struct virt_ipsec_data_ctx) * info->num, GFP_KERNEL);
 		if (!(ipsec_dev->data_q_pair[i].encap_ctx))
 			goto err_ctx;
 	}			
@@ -3951,7 +3956,6 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 	kfree(names);
 	kfree(callbacks);
 	kfree(vqs);
-
 	return 0;
 
 err_ctx:
@@ -3968,6 +3972,7 @@ err_names:
 err_callback:
 	kfree(vqs);
 err_vq:
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -1;
 }        
 
@@ -4028,12 +4033,14 @@ static void virt_ipsec_set_affinity(
 	ipsec_dev->affinity_hint_set = true;
 }
 
+#ifdef _NOT_USED_
 static int virt_ipsec_cpu_callback(struct notifier_block *nfb,
 			        unsigned long action, void *hcpu)
 {
 	struct virt_ipsec_info *ipsec_dev = 
 		container_of(nfb, struct virt_ipsec_info, nb);
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	switch(action & ~CPU_TASKS_FROZEN) {
 	case CPU_ONLINE:
 	case CPU_DOWN_FAILED:
@@ -4049,6 +4056,7 @@ static int virt_ipsec_cpu_callback(struct notifier_block *nfb,
 
 	return NOTIFY_OK;
 }
+#endif
 
 static void virt_ipsec_free_queues(
 	struct virt_ipsec_info *ipsec_dev)
@@ -4084,12 +4092,10 @@ static int init_vqs(struct virt_ipsec_info *ipsec_dev)
 	if (ret)
 		goto err;
 	
-	printk("alloc_queues done\n");
 	ret = virtipsec_find_vqs(ipsec_dev);
 	if (ret)
 		goto err_free;
 	
-	printk("find_vqs done\n");
 	get_online_cpus();
 	virt_ipsec_set_affinity(ipsec_dev);
 	put_online_cpus();
@@ -4100,6 +4106,7 @@ err_free:
 	virt_ipsec_free_queues(ipsec_dev);
 
 err:
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -1;
 
 }
@@ -4115,6 +4122,7 @@ static void free_unused_bufs(struct virt_ipsec_info *ipsec_dev)
 	struct v_ipsec_app *app;
 	struct v_ipsec_app_grp *grp;
 
+	VIRTIO_IPSEC_ENTRY("\n");
 	for (i = 0; i < max_queue_pairs; i++) {
 		 vq = ipsec_dev->data_q_pair[i].decap_q.vq; 
 		while ((d_ctx = virtqueue_detach_unused_buf(vq))!= NULL){
@@ -4251,7 +4259,7 @@ static void virt_ipsec_del_vqs(struct virt_ipsec_info
 
 	virt_ipsec_free_queues(ipsec_dev);
 }
- 
+
 int virt_ipsec_probe( struct virtio_device *vdev)
 {
 	int err;
@@ -4261,8 +4269,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 
 	bool b_notify_q;
 
-	printk("virt_ipsec_probe called\n");
-
+	VIRTIO_IPSEC_ENTRY("vdev %p index %d\n", vdev, vdev->index);
 	/* Read number of queues supported */
 	virtio_cread(vdev, struct virtio_ipsec_config, dev_queue_reg, &dev_queue_reg);
 
@@ -4287,7 +4294,7 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 		return -ENOMEM;
 	}
 
-	ipsec_dev = (struct virt_ipsec_info *)(u8 *)(v_ipsec_dev) + sizeof(struct v_ipsec_device);
+	ipsec_dev = (struct virt_ipsec_info *)(v_ipsec_dev + 1);
 	v_ipsec_dev->info = ipsec_dev;
 
 	ipsec_dev->vdev = vdev;
@@ -4298,19 +4305,24 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	
 	ipsec_dev->num_queues = VIRTIO_IPSEC_MAX_QUEUES_READ(dev_queue_reg);
 	// Temp fix : ipsec_dev->device_scaling = VIRTIO_IPSEC_DEVICE_SCALING_READ(dev_queue_reg);
+	//ipsec_dev->vcpu_scaling = NR_CPUS;
+	// TODO: temp hardcoded
 	ipsec_dev->device_scaling = 1;
 	ipsec_dev->vcpu_scaling = 2; 
-	//ipsec_dev->vcpu_scaling = NR_CPUS;
 
-	/* Temp: prints */
 	printk("num_queues = %d, device_scaling = %d, vcpu_scaling=%d\n",
 		ipsec_dev->num_queues, ipsec_dev->device_scaling, ipsec_dev->vcpu_scaling);
-	
+
 	/* Read Device features */
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_SG_BUFFERS))
     {
 		VIRTIO_IPSEC_DEBUG("Support SG Buffers\n");
 		ipsec_dev->sg_buffer = 1;
+    }
+    if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_AH))
+    {
+		VIRTIO_IPSEC_DEBUG("AH\n");
+		ipsec_dev->ah = 1;
     }
     if (virtio_has_feature(vdev, VIRTIO_IPSEC_F_WESP))
     {
@@ -4380,8 +4392,6 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 		VIRTIO_IPSEC_DEBUG("notify_queue\n");
 	}
 
-
-
 	ipsec_dev->num_queues = calc_num_queues(ipsec_dev->num_queues,
 		ipsec_dev->device_scaling, ipsec_dev->vcpu_scaling, b_notify_q, 
 		&ipsec_dev->num_q_pairs_per_vcpu);
@@ -4404,10 +4414,11 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	//sprintf(ipsec_dev->name, "%s:%d\n", VIRTIO_IPSEC_NAME, virtio_ipsec_mgr_get_new_index(VIRTIO_IPSEC_MAX_DEVICES);
 	
 	/* Write vCPU scaling */
-	virtio_cwrite(vdev, struct virtio_ipsec_config, host_queue_reg, (u32*)(&ipsec_dev->vcpu_scaling));
+	// TODO: temp ignored by backend; so commented - Varun to fix
+	//virtio_cwrite(vdev, struct virtio_ipsec_config, host_queue_reg, (u32*)(&ipsec_dev->vcpu_scaling));
 	
-    	err = init_vqs(ipsec_dev);
-    	if (err)
+	err = init_vqs(ipsec_dev);
+	if (err)
 		goto free_device;
 
 	VIRTIO_IPSEC_DEBUG("init_vqs done\n");
@@ -4431,12 +4442,11 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	}
 	*/
 	INIT_WORK(&ipsec_dev->c_work, _ipsec_control_job_done);
-	
 	VIRTIO_IPSEC_DEBUG("Writing device ok\n");
 	virtio_device_ready(vdev);
 
-	VIRTIO_IPSEC_DEBUG("Written device ok\n");
-
+	VIRTIO_IPSEC_EXIT("success\n");
+	//g_ipsec_dev = ipsec_dev;
 	return 0;
 
 free_resource:
@@ -4444,11 +4454,9 @@ free_resource:
 free_device:
 	kfree(v_ipsec_dev);
 	/* TBD */
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -1;
 }
-
-
-
 
 static void virt_ipsec_remove_vq_common(struct virt_ipsec_info *vi)
 {
@@ -4467,6 +4475,7 @@ static void virt_ipsec_remove(struct virtio_device *vdev)
 	struct virt_ipsec_info *vi = vdev->priv;
 	/* TBD */
 
+	VIRTIO_IPSEC_ENTRY("vdev %p index %d\n", vdev, vdev->index);
 	unregister_hotcpu_notifier(&vi->nb);
 
 	/* Make sure no work handler is accessing the device. */
@@ -4526,6 +4535,7 @@ static unsigned int features[] = {
 
 static void virt_ipsec_config_changed(struct virtio_device *vdev)
 {
+	VIRTIO_IPSEC_ENTRY("===ignored vdev %p index %d\n", vdev, vdev->index);
 	/* TBD */
 }
 
@@ -4545,7 +4555,7 @@ static int _init(void)
 {
 	int ret;
 
-	printk("virtio_ipsec module invoked\n");
+	VIRTIO_IPSEC_ENTRY("\n");
 	if (safe_ref_array_setup(&v_ipsec_devices,
 		VIRTIO_IPSEC_MAX_DEVICES,
 		true))
@@ -4594,8 +4604,8 @@ static int _init(void)
 		printk("register_virtio_driver failed\n");
 		goto err_reg;
 	}
-	printk("register_virtio_driver returned %d\n", ret);
 
+	VIRTIO_IPSEC_EXIT("success\n");
 	return VIRTIO_IPSEC_SUCCESS;
 	
 err_reg:
@@ -4613,11 +4623,13 @@ err_ipsec_app_hndl_refs:
 err_ipsec_app:
 	safe_ref_array_cleanup(&v_ipsec_devices);
 err_ipsec_dev:
+	VIRTIO_IPSEC_EXIT("failed\n");
 	return -ENOMEM;
 }
 
 static void  _deinit(void)
 {
+	VIRTIO_IPSEC_ENTRY("\n");
 	safe_ref_array_cleanup(&v_ipsec_devices);
 	safe_ref_array_cleanup(&v_ipsec_apps);
 	safe_ref_array_cleanup(&v_ipsec_app_hndl_refs);
@@ -4625,7 +4637,6 @@ static void  _deinit(void)
 	safe_ref_array_cleanup(&v_ipsec_grp_hndl_refs);
 	safe_ref_array_cleanup(&v_ipsec_sas);
 	safe_ref_array_cleanup(&v_ipsec_sa_hndl_refs);
-		
 }
 module_init(_init);
 module_exit(_deinit);

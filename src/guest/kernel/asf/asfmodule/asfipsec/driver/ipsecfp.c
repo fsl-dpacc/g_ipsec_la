@@ -44,7 +44,6 @@
 #include "ipseccmn.h"
 #include "ipsecvio.h"
 
-
 /* Data Structure initialization */
 /* Inbound SA SPI Table */
 char aNonIkeMarker_g[ASF_IPSEC_MAX_NON_IKE_MARKER_LEN];
@@ -1775,6 +1774,7 @@ static inline int secfp_try_fastPathOutv4(
 		and one for the core */
 		skb->cb[SECFP_REF_INDEX] = 2;
 
+#if 0
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
@@ -1787,11 +1787,12 @@ static inline int secfp_try_fastPathOutv4(
 						desc, 0);
 		else
 			pSA->prepareOutDescriptor(skb, pSA, desc, 0);
+#endif
 #endif /*ASF_QMAN_IPSEC CONFIG_VIRTIO*/
 
 		ASFIPSEC_FPRINT("Pkt Pre Processing len=%d", skb->len);
 		ASFIPSEC_HEXDUMP(skb->data, skb->len);
-
+#if 0
 		(*pSA->finishOutPktFnPtr)(skb, pSA, pContainer,
 				pOuterIpHdr, ulVSGId,
 			pSecInfo->outContainerInfo.ulSPDContainerId);
@@ -1804,7 +1805,7 @@ static inline int secfp_try_fastPathOutv4(
 			skb->data_len = 0;
 			goto drop_skb_list;
 		}
-
+#endif
 		ASFIPSEC_DEBUG("OUT-submit to SEC");
 		pIPSecPPGlobalStats->ulTotOutRecvPktsSecApply++;
 //#ifndef CONFIG_ASF_SEC4x
@@ -1838,7 +1839,7 @@ static inline int secfp_try_fastPathOutv4(
 			ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA, ASF_IPSEC_PP_POL_CNT13);
 
 			skb->data_len = 0;
-			SECFP_DESC_FREE(desc);
+			//SECFP_DESC_FREE(desc);
 			goto drop_skb_list;
 		}
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)

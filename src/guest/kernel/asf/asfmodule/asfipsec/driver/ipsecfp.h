@@ -30,6 +30,8 @@
 #include "ipseccaam.h"
 #endif
 
+void dbg_prt_blk(char *str, void *key, int keylen);
+
 #ifdef ASF_IPV6_FP_SUPPORT
 /* Header length validation information */
 #define SECFP_IPV6_HDR_LEN	40

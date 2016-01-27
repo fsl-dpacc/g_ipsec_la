@@ -22,6 +22,7 @@
 #include <linux/skbuff.h>
 #include "../../asfffp/driver/asftmr.h"
 #include "../../asfffp/driver/asf.h"
+#include "../../asfffp/driver/asfcmn.h"
 #include "../../asfffp/driver/asfipsec.h"
 #include "ipsfpapi.h"
 #include "ipsecfp.h"
@@ -37,7 +38,68 @@ struct asf_vdev_info {
 };
 
 static struct asf_vdev_info *_asf_device = NULL;
+#if 0
+void dbg_prt_blk(char *str, void *key, int keylen)
+{
+#define __MAX_WORDS_PER_LINE   8
+    char tstr[9 * __MAX_WORDS_PER_LINE];
+    char *pstr;
+    unsigned char *ptr = key;
+    int jj;
 
+    printk("%s ptr %p len %d\n", str, key, keylen);
+    jj = 0; pstr = tstr;
+    while (keylen-- > 0) {
+        sprintf(pstr, "%02X", *ptr++);
+        ++jj; pstr += 2;
+        if ((jj & 3) == 0) {
+            if ((jj >> 2) == __MAX_WORDS_PER_LINE) {
+                /* print this line */
+                *pstr = '\0'; printk("%s\n", tstr);
+                pstr = tstr; jj = 0;
+            } else {
+                /* add a blank after 4 bytes */
+                *pstr++ = ' ';
+            }
+        }
+    }
+    /* print last line */
+    if (jj) {
+        *pstr = '\0'; printk("%s\n", tstr);
+    }
+}
+#endif
+void dbg_prt_sa_parms(char *msg, struct g_ipsec_la_sa_add_inargs *in)
+{
+#if 1
+	printk("===%s: dir %d numSA %d spi 0x%x proto %d flags 0x%x ARwinsize %d\n", msg,
+		in->dir, in->num_sas, in->sa_params->spi, in->sa_params->proto,
+		in->sa_params->cmn_flags, in->sa_params->anti_replay_window_size);
+	printk("    dscp %d dfcmd %d dscpcmd %d reserved %d bAuth %d bEncr %d\n",
+		in->sa_params->outb.dscp, in->sa_params->outb.df_bit_handle,
+		in->sa_params->outb.dscp_handle, in->sa_params->crypto_params.reserved,
+		in->sa_params->crypto_params.bAuth, in->sa_params->crypto_params.bEncrypt);
+	printk("    auth_algo %d cipher_algo %d blksize %d\n", in->sa_params->crypto_params.auth_algo,
+		in->sa_params->crypto_params.cipher_algo, in->sa_params->crypto_params.block_size);
+	printk("    icv_len_bits %d soft_KB %d hard_KB %d seq_intv %d\n",
+		in->sa_params->crypto_params.icv_len_bits, in->sa_params->soft_kilobytes_limit,
+		in->sa_params->hard_kilobytes_limit, in->sa_params->seqnum_interval);
+	if (in->sa_params->crypto_params.auth_key)
+		dbg_prt_blk("   auth_key:", in->sa_params->crypto_params.auth_key, in->sa_params->crypto_params.auth_key_len_bits/8);
+	else
+		printk("    auth_key null len %d bits\n", in->sa_params->crypto_params.auth_key_len_bits);
+	if (in->sa_params->crypto_params.cipher_key)
+		dbg_prt_blk("   cipher_key:", in->sa_params->crypto_params.cipher_key, in->sa_params->crypto_params.cipher_key_len_bits/8);
+	else printk("    cipher_key null len %d bits\n", in->sa_params->crypto_params.cipher_key_len_bits);
+	if (in->sa_params->crypto_params.iv)
+	 	dbg_prt_blk("   iv:", in->sa_params->crypto_params.iv, in->sa_params->crypto_params.iv_len_bits/8);
+	else printk("    iv null len %d bits\n", in->sa_params->crypto_params.iv_len_bits);
+#else
+	printk("########## Dump Parameters STARTING ################## \r\n");
+	printk(" in->dir %d \n in->num_sas %d \n in->sa_params->spi 0x%x \n in->sa_params->proto %d \n in->sa_params->cmn_flags %d \n in->sa_params->anti_replay_window_size %d \n in->sa_params->outb.dscp %d \n in->sa_params->outb.df_bit_handle %d \n in->sa_params->outb.dscp_handle %d \n in->sa_params->crypto_params.reserved %d \n in->sa_params->crypto_params.bAuth %d \n in->sa_params->crypto_params.bEncrypt %d \n in->sa_params->crypto_params.auth_algo %d \n in->sa_params->crypto_params.auth_key %p \n in->sa_params->crypto_params.auth_key_len_bits %d \n in->sa_params->crypto_params.cipher_algo %d \n  in->sa_params->crypto_params.cipher_key %p \n in->sa_params->crypto_params.block_size %d \n in->sa_params->crypto_params.cipher_key_len_bits %d \n in->sa_params->crypto_params.iv %p \n in->sa_params->crypto_params.iv_len_bits %d \n in->sa_params->crypto_params.icv_len_bits %d \n in->sa_params->soft_kilobytes_limit %d \n in->sa_params->hard_kilobytes_limit %d \n in->sa_params->seqnum_interval %d \n \r\n", in->dir, in->num_sas, in->sa_params->spi,in->sa_params->proto, in->sa_params->cmn_flags, in->sa_params->anti_replay_window_size, in->sa_params->outb.dscp, in->sa_params->outb.df_bit_handle, in->sa_params->outb.dscp_handle, in->sa_params->crypto_params.reserved, in->sa_params->crypto_params.bAuth, in->sa_params->crypto_params.bEncrypt, in->sa_params->crypto_params.auth_algo, in->sa_params->crypto_params.auth_key, in->sa_params->crypto_params.auth_key_len_bits, in->sa_params->crypto_params.cipher_algo, in->sa_params->crypto_params.cipher_key, in->sa_params->crypto_params.block_size, in->sa_params->crypto_params.cipher_key_len_bits, in->sa_params->crypto_params.iv, in->sa_params->crypto_params.iv_len_bits, in->sa_params->crypto_params.icv_len_bits, in->sa_params->soft_kilobytes_limit, in->sa_params->hard_kilobytes_limit, in->sa_params->seqnum_interval);
+	printk("########## Dump Parameters ENDING ################## \r\n");
+#endif
+}
 void asf_vio_device_unplugged(struct g_ipsec_la_handle *handle,  void *cb_arg)
 {
 	ASF_VIO_DEBUG("Device unplugged\n");
@@ -45,16 +107,21 @@ void asf_vio_device_unplugged(struct g_ipsec_la_handle *handle,  void *cb_arg)
 
 void asf_virtio_interface_init()
 {
+	struct g_ipsec_la_open_inargs in_open;
+	struct g_ipsec_la_open_outargs out_open;
+	int ret;
+	char acc_name[20] = "ipsec-0";
+	char app_iden[20] = "ASF";
+
+	/*struct g_ipsec_la_avail_devices_get_outargs out;
+	char last_name[IPSEC_IFNAMESIZ];
+	out.last_device_read = last_name;*/
+#if 0
 	char version[G_IPSEC_LA_MAX_VERSION_LENGTH];
 	uint32_t nr_devices;
 	u32 ii;
 	struct g_ipsec_la_avail_devices_get_inargs in;
-	struct g_ipsec_la_avail_devices_get_outargs out;
-	struct g_ipsec_la_open_inargs in_open;
-	struct g_ipsec_la_open_outargs out_open;
-	int ret;
 	struct g_ipsec_la_device_info *info;
-		
 
 	/* check on the API version */
 	g_ipsec_la_get_api_version(version);
@@ -98,32 +165,32 @@ void asf_virtio_interface_init()
 			ASF_VIO_DEBUG("Memory allocation error %s:%s:%d\n", 
 				__FILE__, __func__, __LINE__);
 			return;
-			}
-		strcpy(_asf_device->name, info->device_name);
 		}
-
-	
-	in_open.app_identity = kzalloc(1, sizeof("ASF"));
-	in_open.accl_name = _asf_device->name;
-	in_open.cb_fn = asf_vio_device_unplugged;
+		strncpy(_asf_device->name, info->device_name, 16);
+	}
+#endif
 	in_open.cb_arg = NULL;
 	in_open.cb_arg_len = 0;
+	in_open.pci_vendor_id = VIRTIO_IPSEC_VENDOR_ID;
+	in_open.device_id = VIRTIO_IPSEC_DEVICE_ID;
+	in_open.accl_name = acc_name;
+	in_open.app_identity = app_iden;
+	in_open.cb_fn = asf_vio_device_unplugged;
 
 	_asf_device = kzalloc(sizeof(struct g_ipsec_la_device_info)+IPSEC_IFNAMESIZ, GFP_KERNEL);
 	out_open.handle = &(_asf_device->handle);
 	
-		/* Open the device */
+	/* Open the device */
 	ret = g_ipsec_la_open(G_IPSEC_LA_INSTANCE_EXCLUSIVE,&in_open, &out_open);
 	if (ret != G_IPSEC_LA_SUCCESS) {
 		ASF_VIO_DEBUG("Unable to get an IPsec handle%s:%s:%d \n",
 			__FILE__, __func__, __LINE__);
-		kfree(out.dev_info);
 		kfree(_asf_device);
 		_asf_device = NULL;
 		return;
 	}
 	/* Now we have got the handle: good to go */
-		
+	dbg_prt_blk("asf_ipsec device:\n", _asf_device, sizeof(struct asf_vdev_info));
 }
 
 #if 0
@@ -134,12 +201,20 @@ typedef  struct {
 } ASF_IPSec_Nat_Info_t;
 
 #endif
+
+void vioips_sa_add_cbfn(void *arg, int arg_len, struct g_ipsec_la_sa_add_outargs *out)
+{
+	printk("===callback received\n");
+}
+
 int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 {
 	struct g_ipsec_la_sa_add_inargs in;
 	struct g_ipsec_la_sa_add_outargs out;
 	struct g_ipsec_la_sa sa_params; 
-	int ret;
+	struct g_ipsec_la_resp_args resp_a;
+	enum g_ipsec_la_control_flags flags_a;
+	int ret = ASF_FAILURE;
 
 	in.dir = G_IPSEC_LA_SA_INBOUND;
 	in.num_sas = 1;
@@ -239,7 +314,7 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 		sa_params.crypto_params.cipher_key_len_bits= pSA->SAParams.EncKeyLen*8;
 
 		sa_params.crypto_params.block_size = pSA->SAParams.ulBlockSize;
-		sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize;
+		sa_params.crypto_params.iv_len_bits = 0;
 			
 		switch (pSA->SAParams.ucCipherAlgo) {
 			case SECFP_DES:
@@ -267,7 +342,6 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 				sa_params.crypto_params.cipher_algo = G_IPSEC_LA_ALGO_COMB_AES_CCM;
 				sa_params.crypto_params.icv_len_bits = pSA->SAParams.uICVSize*8;
 				sa_params.crypto_params.block_size = AES_CCM_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize*8;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
 					memcpy(sa_params.crypto_params.iv, pSA->SAParams.ucNounceIVCounter,
@@ -282,7 +356,6 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 				sa_params.crypto_params.cipher_algo = G_IPSEC_LA_ALGO_COMB_AES_GCM;
 				sa_params.crypto_params.icv_len_bits = pSA->SAParams.uICVSize*8;
 				sa_params.crypto_params.block_size = AES_GCM_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize*8;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
 					memcpy(sa_params.crypto_params.iv, pSA->SAParams.ucNounceIVCounter,
@@ -294,7 +367,6 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 			case SECFP_NULL_AES_GMAC:
 				sa_params.crypto_params.cipher_algo= G_IPSEC_LA_ALGO_COMB_AES_GMAC;
 				sa_params.crypto_params.block_size = AES_GMAC_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits= AES_GMAC_IV_LEN*8;
 				sa_params.crypto_params.icv_len_bits= pSA->SAParams.uICVSize;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
@@ -318,12 +390,42 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 
 	if (pSA->SAParams.bEncapsulationMode == ASF_IPSEC_SA_SAFLAGS_TRANSPORTMODE)
 			sa_params.cmn_flags |= G_IPSEC_LA_SA_ENCAP_TRANSPORT_MODE;
-	
 
-	ret = g_ipsec_la_sa_add(&_asf_device->handle, &in,0, &out, NULL);
+	resp_a.cb_fn = vioips_sa_add_cbfn;
+	resp_a.cb_arg = NULL;
+	resp_a.cb_arg_len = 0;		
+	flags_a =  0 /* for a-sync mode */;
+	//flags_a = G_IPSEC_LA_CTRL_FLAG_ASYNC /* for sync mode */;
 
-	if (ret ==0)
-		memcpy(pSA->sa_handle, (void *)&out.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
+	dbg_prt_blk("===asf device:\n", _asf_device, sizeof(struct asf_vdev_info));
+	dbg_prt_sa_parms(__func__, &in);
+	if (_asf_device == NULL) {
+		printk("##### _asf_device is NULL\n");
+		goto api_err;
+	}
+
+	out.result = 0xFFFFFFFF;
+	ret = g_ipsec_la_sa_add(&_asf_device->handle, &in, flags_a, &out, &resp_a);
+	//ret = virt_ipsec_sa_add(&_asf_device->handle, &in, flags_a, &out, &resp_a);
+	if (ret != 0) {
+		printk("##### virt_ipsec_sa_add returned error %d in %s %d \r\n", ret, __FUNCTION__, __LINE__);
+		goto api_err;
+	}
+#if 0
+	for (ret = 500; ret > 0; --ret) {
+		msleep_interruptible(10);
+		if (out.result != 0xFFFFFFFF) break;
+	}
+	if (ret == 0) {
+		printk("##### g_ipsec_la_sa_add response timeout\n");
+		ret = ASF_FAILURE;
+		goto api_err;
+	}
+	ret = ASF_SUCCESS;
+#endif
+	memcpy(pSA->sa_handle, (void *)&out.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
+	printk("##### virt_ipsec_sa_add returned %d handle 0x%x:0x%x\n", out.result,
+		*(u32 *)pSA->sa_handle, *(u32 *)(pSA->sa_handle + 4));
 
 api_err:
 	if (sa_params.crypto_params.iv != NULL)
@@ -332,6 +434,7 @@ api_err:
 		kfree(sa_params.crypto_params.cipher_key);
 	if (sa_params.crypto_params.auth_key != NULL)
 		kfree(sa_params.crypto_params.auth_key);
+	if (ret) printk("%s failed\n", __func__);
 	return ret;
 }
 
@@ -339,14 +442,18 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 {
 	struct g_ipsec_la_sa_add_inargs in;
 	struct g_ipsec_la_sa_add_outargs out;
-
 	struct g_ipsec_la_sa sa_params; 
-	int ret;
+	struct g_ipsec_la_resp_args resp_a;
+	enum g_ipsec_la_control_flags flags_a;
+	int ret = ASF_FAILURE;
 
 	in.dir = G_IPSEC_LA_SA_OUTBOUND;
 	in.num_sas = 1;
 	in.sa_params = &sa_params;
 
+	sa_params.crypto_params.iv = NULL;
+	sa_params.crypto_params.cipher_key= NULL;
+	sa_params.crypto_params.auth_key= NULL;
 	sa_params.spi = pSA->SAParams.ulSPI;
 	sa_params.proto = pSA->SAParams.ucProtocol;
 	sa_params.cmn_flags = 0;
@@ -438,7 +545,7 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 		sa_params.crypto_params.cipher_key_len_bits= pSA->SAParams.EncKeyLen*8;
 
 		sa_params.crypto_params.block_size = pSA->SAParams.ulBlockSize;
-		sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize;
+		sa_params.crypto_params.iv_len_bits = 0;
 			
 		switch (pSA->SAParams.ucCipherAlgo) {
 			case SECFP_DES:
@@ -466,7 +573,6 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 				sa_params.crypto_params.cipher_algo = G_IPSEC_LA_ALGO_COMB_AES_CCM;
 				sa_params.crypto_params.icv_len_bits = pSA->SAParams.uICVSize*8;
 				sa_params.crypto_params.block_size = AES_CCM_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize*8;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
 					memcpy(sa_params.crypto_params.iv, pSA->SAParams.ucNounceIVCounter,
@@ -481,7 +587,6 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 				sa_params.crypto_params.cipher_algo = G_IPSEC_LA_ALGO_COMB_AES_GCM;
 				sa_params.crypto_params.icv_len_bits = pSA->SAParams.uICVSize*8;
 				sa_params.crypto_params.block_size = AES_GCM_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits = pSA->SAParams.ulIvSize*8;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
 					memcpy(sa_params.crypto_params.iv, pSA->SAParams.ucNounceIVCounter,
@@ -493,7 +598,6 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 			case SECFP_NULL_AES_GMAC:
 				sa_params.crypto_params.cipher_algo= G_IPSEC_LA_ALGO_COMB_AES_GMAC;
 				sa_params.crypto_params.block_size = AES_GMAC_BLOCK_SIZE;
-				sa_params.crypto_params.iv_len_bits= AES_GMAC_IV_LEN*8;
 				sa_params.crypto_params.icv_len_bits= pSA->SAParams.uICVSize;
 				sa_params.crypto_params.iv = kzalloc(sizeof(pSA->SAParams.ucNounceIVCounter), GFP_KERNEL);
 				if (sa_params.crypto_params.iv)
@@ -544,15 +648,40 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 			break;
 		case SECFP_DF_COPY: /* Revisit AVS 09/02 */
 			sa_params.outb.df_bit_handle = G_IPSEC_LA_DF_COPY;
-			ASF_VIO_DEBUG("DF Option not handled");
+			ASF_VIO_DEBUG("DF Option not handled\n");
 			break;
 		default:
 			goto api_error;
 		}
 
-	ret = g_ipsec_la_sa_add(&_asf_device->handle, &in,0, &out,  NULL);
-	if (ret == 0)
-		memcpy(&pSA->sa_handle, &out.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
+	resp_a.cb_fn = vioips_sa_add_cbfn;
+	resp_a.cb_arg = NULL;
+	resp_a.cb_arg_len = 0;		
+	flags_a =  0 /* for a-sync mode */;
+	//flags_a = G_IPSEC_LA_CTRL_FLAG_ASYNC /* for sync mode */;
+	dbg_prt_sa_parms(__func__, &in);
+
+	out.result = 0xFFFFFFFF;
+	ret = g_ipsec_la_sa_add(&_asf_device->handle, &in, flags_a, &out, &resp_a);
+	if (ret != 0) {
+		printk("##### virt_ipsec_sa_add returned error %d in %s %d \r\n", ret, __FUNCTION__, __LINE__);
+		goto api_error;
+	}
+#if 0
+	for (ret = 500; ret > 0; --ret) {
+		msleep_interruptible(10);
+		if (out.result != 0xFFFFFFFF) break;
+	}
+	if (ret == 0) {
+		printk("##### g_ipsec_la_sa_add response timeout\n");
+		ret = ASF_FAILURE;
+		goto api_err;
+	}
+	ret = ASF_SUCCESS;
+#endif
+	memcpy(pSA->sa_handle, &out.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
+	printk("##### virt_ipsec_sa_add returned %d handle %d:%d\n", out.result,
+		*(u32 *)pSA->sa_handle, *(u32 *)(pSA->sa_handle + 4));
 
 api_error:
 	if (sa_params.crypto_params.iv != NULL)
@@ -561,6 +690,7 @@ api_error:
 		kfree(sa_params.crypto_params.cipher_key);
 	if (sa_params.crypto_params.auth_key != NULL)
 		kfree(sa_params.crypto_params.auth_key);
+	if (ret) printk("%s failed\n", __func__);
 	return ret;
 }
 
@@ -623,8 +753,8 @@ int32_t secfp_vio_encap(outSA_t *pSA,
 	resp.cb_arg_len = sizeof(areq);
 
 		
-	ret = g_ipsec_la_packet_encap(&_asf_device->handle,G_IPSEC_LA_CTRL_FLAG_ASYNC,
-		pSA->sa_handle ,1,&in_data, &out_data,&resp);
+	ret = g_ipsec_la_packet_encap(&_asf_device->handle, G_IPSEC_LA_CTRL_FLAG_ASYNC,
+		pSA->sa_handle, 1, &in_data, &out_data, &resp);
 
 	return ret;
 }

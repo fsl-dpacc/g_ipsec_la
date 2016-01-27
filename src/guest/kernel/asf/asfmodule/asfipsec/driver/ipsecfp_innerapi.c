@@ -1786,6 +1786,7 @@ static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 #elif defined(CONFIG_VIRTIO)
 static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 {
+	memcpy(&pSA->SAParams, pSAParams, sizeof(SAParams_t));
 	return 0;
 }
 #endif
@@ -2022,7 +2023,8 @@ static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 #elif defined(CONFIG_VIRTIO)
 static inline int secfp_updateOutSA(outSA_t *pSA, void *buff)
 {
-	printk("Stubbed out\n");
+	SAParams_t *pSAParams = (SAParams_t *)(buff);
+	memcpy(&pSA->SAParams, pSAParams, sizeof(SAParams_t));
 	return 0;
 }
 #endif
@@ -2771,7 +2773,7 @@ unsigned int secfp_createOutSA(
 	secfp_createOutSATalitosDesc(pSA);
 #endif
 #ifndef ASF_QMAN_IPSEC
-			pSA->prepareOutDescriptor = secfp_prepareOutDescriptor;
+			//pSA->prepareOutDescriptor = secfp_prepareOutDescriptor;
 #if defined(CONFIG_ASF_SEC3x)
 			pSA->prepareOutDescriptorWithFrags = secfp_prepareOutDescriptorWithFrags;
 #else
@@ -2820,6 +2822,12 @@ unsigned int secfp_createOutSA(
 		return SECFP_FAILURE;
 #endif
 	}
+	/* New API for virtio IPsec */
+	if (!bVal)
+		local_bh_enable();
+	secfp_createOutSAVIpsec(pSA);
+	if (!bVal)
+		local_bh_disable();
 
 	ulIndex = ptrIArray_add(&secFP_OutSATable, pSA);
 	if (ulIndex < secFP_OutSATable.nr_entries) {
@@ -3288,11 +3296,15 @@ unsigned int secfp_CreateInSA(
 #endif
 #else
 		/* New API for virtio IPsec */
+		if (!bVal)
+			local_bh_enable();
 		secfp_createInSAVIpsec(pSA);
+		if (!bVal)
+			local_bh_disable();
 #endif
 
 #ifndef ASF_QMAN_IPSEC
-			pSA->prepareInDescriptor = secfp_prepareInDescriptor;
+			//pSA->prepareInDescriptor = secfp_prepareInDescriptor;
 #if defined(CONFIG_ASF_SEC3x)
 			pSA->prepareInDescriptorWithFrags = secfp_prepareInDescriptorWithFrags;
 #else

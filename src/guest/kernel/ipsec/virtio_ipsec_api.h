@@ -76,8 +76,8 @@ enum g_ipsec_la_mode {
 /*! Control Flags */
 enum g_ipsec_la_control_flags
 {
-	G_IPSEC_LA_CTRL_FLAG_ASYNC, /**< If Set, API call be asynchronous. Otherwise, API call will be synchronous */
-	G_IPSEC_LA_CTRL_FLAG_NO_RESP_EXPECTED, /**< If set, no response is expected for this API call */
+	G_IPSEC_LA_CTRL_FLAG_ASYNC = BIT(0), /**< If Set, API call be asynchronous. Otherwise, API call will be synchronous */
+	G_IPSEC_LA_CTRL_FLAG_NO_RESP_EXPECTED = BIT(1), /**< If set, no response is expected for this API call */
 }; 
 
 
@@ -926,6 +926,11 @@ int32_t	g_ipsec_la_packet_decap(
 	struct g_ipsec_la_resp_args *resp
 	);
 
+/* Todo: 
+ 1.  Map APIs to Virtio calls 
+ 2.  Version implementation
+ 3.  SA handle and group handle to be 8 bit in virtio messages
+*/
 
 #endif
 	

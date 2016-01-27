@@ -2215,7 +2215,7 @@ int asf_ffp_devfp_rx_int(struct sk_buff *skb, struct net_device *real_dev)
 			anDev->ulVSGId, 
 			anDev->ulCommonInterfaceId,
 			abuf,
-			(genericFreeFn_t)ASF_SKB_FREE_FUNC, skb);a
+			(genericFreeFn_t)ASF_SKB_FREE_FUNC, skb);
 */
 
 	    

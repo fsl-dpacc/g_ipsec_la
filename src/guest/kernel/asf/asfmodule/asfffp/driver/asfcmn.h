@@ -18,6 +18,8 @@
 #ifndef __ASF_CMN_H
 #define __ASF_CMN_H
 
+#include <linux/netdevice.h>
+
 #define PERIODIC_ERRMSGS { \
        "misconfig: HW UDP checksum disabled", \
        "misconfig: HW TCP checksum disabled", \

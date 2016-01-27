@@ -2182,7 +2182,6 @@ static int __init ASFIPSec_Init(void)
 	//	ASFIPSEC_WARN("Unable to register IPSEC proc");
 
 	asf_virtio_interface_init();
-
 	ASFIPSEC_DEBUG("Exit");
 	return 0;
 
