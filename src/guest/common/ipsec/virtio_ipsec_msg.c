@@ -300,12 +300,6 @@ int32_t virt_ipsec_msg_group_delete(
 	return VIRTIO_IPSEC_SUCCESS;
 }
 
-
-
-
-	
-#define VIRTIO_IPSEC_MAX_KEY_IV_LEN 64
-
 #define VIRTIO_IPSEC_ADD_SA_MSG_SIZE \
 	(sizeof(struct virtio_ipsec_ctrl_hdr) +	\
 	 sizeof(struct virtio_ipsec_ctrl_result) +	\
@@ -323,9 +317,8 @@ int32_t virt_ipsec_msg_group_delete(
 	 VIRTIO_IPSEC_MAX_KEY_IV_LEN +	\
 	 VIRTIO_IPSEC_MAX_KEY_IV_LEN +	\
 	 VIRTIO_IPSEC_MAX_KEY_IV_LEN)
-	 
 
-int32_t virt_ipsec_msg_sa_add( u32 *handle, 
+int32_t virt_ipsec_msg_sa_add(u32 *handle, 
 	 const struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
 	 u8 **result_ptr)
 {
@@ -347,9 +340,6 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 	u8 *buf, *buf_start;
 	
 	/* Check num_sas  to see if we support SA Bundle */
-
-	
-	
 	/* Check feature bits for compatibility */
 
 	buf_start = buf = kzalloc(VIRTIO_IPSEC_ADD_SA_MSG_SIZE, GFP_KERNEL);
@@ -360,26 +350,22 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 	}
 
 	hdr = (struct virtio_ipsec_ctrl_hdr *)buf;
-	
-		
 	hdr->class = VIRTIO_IPSEC_CTRL_SA;
 	if (in->dir == G_IPSEC_LA_SA_OUTBOUND)
 		hdr->cmd = VIRTIO_IPSEC_CTRL_ADD_OUT_SA;
 	else
 		hdr->cmd = VIRTIO_IPSEC_CTRL_ADD_IN_SA;
-
 	*len = sizeof(struct virtio_ipsec_ctrl_hdr);
-	
-	v_create_sa = (struct virtio_ipsec_create_sa *)((u8 *)buf + sizeof(struct virtio_ipsec_ctrl_hdr));
+	buf += sizeof(struct virtio_ipsec_ctrl_hdr);
+
+	v_create_sa = (struct virtio_ipsec_create_sa *)buf;
 	if (handle != NULL)
 		memcpy(v_create_sa->group_handle, handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
 	else
 		memset(v_create_sa->group_handle, 0, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
 
 	v_create_sa->num_sas = in->num_sas;
-
 	v_sa_params = &v_create_sa->sa_params;
-		
 	v_sa_params->ulSPI = sa_params->spi;
 
 	if (sa_params->proto == G_IPSEC_LA_PROTOCOL_ESP)
@@ -414,50 +400,46 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 	else
 		v_sa_params->bNotifyBeforeSeqNumOverflow = VIRTIO_IPSEC_SA_NOTIFY_SEQNUM_OVERFLOW_OFF;
 
-	 if (sa_params->cmn_flags & G_IPSEC_LA_NOTIFY_SEQNUM_PERIODIC)
-	 	v_sa_params->bNotifySeqNumPeriodic = VIRTIO_IPSEC_SA_NOTIFY_SEQNUM_PERIODIC_ON;
-	 else
-	 	v_sa_params->bNotifySeqNumPeriodic = VIRTIO_IPSEC_SA_NOTIFY_SEQNUM_PERIODIC_OFF;
+	if (sa_params->cmn_flags & G_IPSEC_LA_NOTIFY_SEQNUM_PERIODIC)
+		v_sa_params->bNotifySeqNumPeriodic = VIRTIO_IPSEC_SA_NOTIFY_SEQNUM_PERIODIC_ON;
+	else
+		v_sa_params->bNotifySeqNumPeriodic = VIRTIO_IPSEC_SA_NOTIFY_SEQNUM_PERIODIC_OFF;
 
-	 v_sa_params->antiReplayWin = sa_params->anti_replay_window_size;
-
+	v_sa_params->antiReplayWin = sa_params->anti_replay_window_size;
 	*len += sizeof(struct virtio_ipsec_create_sa);
 	buf += sizeof(struct virtio_ipsec_create_sa);
 
 	/* Set the encapsulation mode */
 	/* Encapsulation mode: tunnel or transport */
-	if ((!(sa_params->cmn_flags & G_IPSEC_LA_SA_ENCAP_TRANSPORT_MODE))) {/* Tunnel Mode */ 
-		
+	if (!(sa_params->cmn_flags & G_IPSEC_LA_SA_ENCAP_TRANSPORT_MODE)) {/* Tunnel Mode */ 
 		v_sa_params->bEncapsulationMode = VIRTIO_IPSEC_SA_SAFLAGS_TUNNEL_MODE;
 		if (!(sa_params->cmn_flags & G_IPSEC_LA_SA_USE_IPv6)) { /* Use IPv4 */
 			v_sa_params->bIPv4OrIPv6 = VIRTIO_IPSEC_TUNNEL_HDR_IS_IPV4;
 
-			ipv4 =  (struct virtio_ipsec_tunnel_hdr_ipv4 *)(buf);
-			
+			ipv4 = (struct virtio_ipsec_tunnel_hdr_ipv4 *)buf;
 			/* Populate the tunnel data structure */
 			ipv4->saddr = sa_params->te_addr.src_ip.ipv4;
 			ipv4->daddr = sa_params->te_addr.dest_ip.ipv4;
 
 			if (in->dir == G_IPSEC_LA_SA_OUTBOUND) {
 				if (sa_params->outb.dscp_handle == G_IPSEC_LA_DSCP_CLEAR)
-						ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_CLEAR;
+					ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_CLEAR;
 				else if (sa_params->outb.dscp_handle == G_IPSEC_LA_DSCP_COPY)	
-						ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_COPY;
-					 else {
-					 	ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_SET;
-						ipv4->Dscp = sa_params->outb.dscp;
-					}
-				switch(sa_params->outb.df_bit_handle)
-				{
+					ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_COPY;
+				else {
+				 	ipv4->b_handle_dscp = VIRTIO_IPSEC_DSCP_SET;
+					ipv4->Dscp = sa_params->outb.dscp;
+				}
+				switch(sa_params->outb.df_bit_handle) {
 					case G_IPSEC_LA_DF_CLEAR:
-							ipv4->b_handle_df = VIRTIO_IPSEC_DF_CLEAR;
-							break;
+						ipv4->b_handle_df = VIRTIO_IPSEC_DF_CLEAR;
+						break;
 					case G_IPSEC_LA_DF_SET:
-							ipv4->b_handle_df = VIRTIO_IPSEC_DF_SET;
-							break;
+						ipv4->b_handle_df = VIRTIO_IPSEC_DF_SET;
+						break;
 					case G_IPSEC_LA_DF_COPY:
-							ipv4->b_handle_df = VIRTIO_IPSEC_DF_COPY;
-							break;
+						ipv4->b_handle_df = VIRTIO_IPSEC_DF_COPY;
+						break;
 					default:
 						break;
 				}
@@ -466,38 +448,34 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 				ipv4->b_propogate_ECN = VIRTIO_IPSEC_PROPOGATE_ECN_ON;
 			else
 				ipv4->b_propogate_ECN = VIRTIO_IPSEC_PROPOGATE_ECN_OFF;
-
 			*len += sizeof(struct virtio_ipsec_tunnel_hdr_ipv4);
 			buf += sizeof(struct virtio_ipsec_tunnel_hdr_ipv4);
-			
-		}else {
+		} else { /* use ipv6 */
 			v_sa_params->bIPv4OrIPv6 = VIRTIO_IPSEC_TUNNEL_HDR_IS_IPV6;
 
-			ipv6 = (struct virtio_ipsec_tunnel_hdr_ipv6 *)(u8 *)(buf);
-			
-			memcpy(ipv6->s_addr, sa_params->te_addr.src_ip.ipv6.w_addr, 4);
-			memcpy(ipv6->d_addr, sa_params->te_addr.dest_ip.ipv6.w_addr, 4);
+			ipv6 = (struct virtio_ipsec_tunnel_hdr_ipv6 *)buf;
+			memcpy(ipv6->s_addr, sa_params->te_addr.src_ip.ipv6.w_addr, 16);
+			memcpy(ipv6->d_addr, sa_params->te_addr.dest_ip.ipv6.w_addr, 16);
 
 			if (in->dir == G_IPSEC_LA_SA_OUTBOUND) {
 				if (sa_params->outb.dscp_handle == G_IPSEC_LA_DSCP_CLEAR)
-						ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_CLEAR;
+					ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_CLEAR;
 				else if (sa_params->outb.dscp_handle == G_IPSEC_LA_DSCP_COPY)	
-						ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_COPY;
-					 else {
-					 	ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_SET;
-						ipv6->dscp = sa_params->outb.dscp;
-					}
-				switch(sa_params->outb.df_bit_handle)
-				{
+					ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_COPY;
+				else {
+				 	ipv6->b_handle_dscp = VIRTIO_IPSEC_DSCP_SET;
+					ipv6->dscp = sa_params->outb.dscp;
+				}
+				switch(sa_params->outb.df_bit_handle) {
 					case G_IPSEC_LA_DF_CLEAR:
-							ipv6->b_handle_df = VIRTIO_IPSEC_DF_CLEAR;
-							break;
+						ipv6->b_handle_df = VIRTIO_IPSEC_DF_CLEAR;
+						break;
 					case G_IPSEC_LA_DF_SET:
-							ipv6->b_handle_df = VIRTIO_IPSEC_DF_SET;
-							break;
+						ipv6->b_handle_df = VIRTIO_IPSEC_DF_SET;
+						break;
 					case G_IPSEC_LA_DF_COPY:
-							ipv6->b_handle_df = VIRTIO_IPSEC_DF_COPY;
-							break;
+						ipv6->b_handle_df = VIRTIO_IPSEC_DF_COPY;
+						break;
 					default:
 						break;
 				}
@@ -507,19 +485,17 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 			else
 				ipv6->b_propogate_ECN = VIRTIO_IPSEC_PROPOGATE_ECN_OFF;
 			*len += sizeof(struct virtio_ipsec_tunnel_hdr_ipv6);
-			 buf += sizeof(struct virtio_ipsec_tunnel_hdr_ipv6);
+			buf += sizeof(struct virtio_ipsec_tunnel_hdr_ipv6);
 		}
-	}
-	else {
+	} else {
 		v_sa_params->bEncapsulationMode = VIRTIO_IPSEC_SA_SAFLAGS_TRANSPORT_MODE;
 	}
 
 	/* Copy the crypto parameters */
 	if (v_sa_params->proto == VIRTIO_IPSEC_SA_PARAMS_PROTO_ESP) {
-		esp->bEncrypt = true;
 		esp = (struct virtio_ipsec_esp_info *)buf;
-		switch(sa_params->crypto_params.cipher_algo)
-		{
+		esp->bEncrypt = true;
+		switch (sa_params->crypto_params.cipher_algo) {
 			case G_IPSEC_LA_CIPHER_ALGO_NULL:
 				esp->cipher_algo = VIRTIO_IPSEC_ESP_NULL;
 				break;
@@ -536,7 +512,7 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 				esp->cipher_algo = VIRTIO_IPSEC_AESCTR;
 				break;
 			case G_IPSEC_LA_ALGO_COMB_AES_CCM:
-				switch(sa_params->crypto_params.icv_len_bits/8) {
+				switch (sa_params->crypto_params.icv_len_bits/8) {
 					case 8:
 						esp->cipher_algo = VIRTIO_IPSEC_AES_CCM_ICV8;
 						break;
@@ -551,7 +527,7 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 					}
 				break;
 			case G_IPSEC_LA_ALGO_COMB_AES_GCM:
-				switch(sa_params->crypto_params.icv_len_bits/8) {
+				switch (sa_params->crypto_params.icv_len_bits/8) {
 					case 8:
 						esp->cipher_algo = VIRTIO_IPSEC_AES_GCM_ICV8;
 						break;
@@ -563,12 +539,12 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 						break;
 					default:
 						break;
-					}
+				}
 				break;
 			case G_IPSEC_LA_ALGO_COMB_AES_GMAC:
 				esp->cipher_algo = VIRTIO_IPSEC_AES_GMAC;
 				break;
-			}
+		}
 		*len += sizeof(struct virtio_ipsec_esp_info);
 		buf += sizeof(struct virtio_ipsec_esp_info);
 
@@ -576,9 +552,8 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 		cipher_key_info->lv.len = sa_params->crypto_params.cipher_key_len_bits/8;
 		memcpy(cipher_key_info->lv.data, sa_params->crypto_params.cipher_key, 
 			cipher_key_info->lv.len);
-
-		*len += cipher_key_info->lv.len;
-		buf += cipher_key_info->lv.len;
+		*len += sizeof(struct cipher_key);
+		buf += sizeof(struct cipher_key);
 
 		if (sa_params->crypto_params.auth_algo != G_IPSEC_LA_AUTH_ALGO_NONE) {
 			esp->bAuth = true;
@@ -589,18 +564,18 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 			memcpy(auth_key_info->lv.data, sa_params->crypto_params.auth_key,
 				auth_key_info->lv.len);
 			esp->ICVSize = sa_params->crypto_params.icv_len_bits/8;
-			*len += auth_key_info->lv.len;
-			buf += auth_key_info->lv.len;
-			}
+			*len += sizeof(struct auth_key);
+			buf += sizeof(struct auth_key);
+		}
 	
 		nounce_iv_info = (struct nounce_iv *)buf; 
 		nounce_iv_info->lv.len = sa_params->crypto_params.iv_len_bits/8;
 		memcpy(nounce_iv_info->lv.data, sa_params->crypto_params.iv,
 			nounce_iv_info->lv.len);
-		
-		*len += nounce_iv_info->lv.len;
-		buf += nounce_iv_info->lv.len;
+		*len += sizeof(struct nounce_iv);
+		buf += sizeof(struct nounce_iv);
 	}
+
 	if (v_sa_params->proto == VIRTIO_IPSEC_AH) {
 		ah = (struct virtio_ipsec_ah_info *)buf;
 		switch(sa_params->crypto_params.auth_algo) {
@@ -628,30 +603,28 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 			case G_IPSEC_LA_AUTH_ALGO_HMAC_SHA1_160:
 				ah->authAlgo = VIRTIO_IPSEC_HMAC_SHA1_160;
 				break;
-			}			
-
+		}			
 		*len += sizeof(struct virtio_ipsec_ah_info);
 		buf += sizeof(struct virtio_ipsec_ah_info);
-	
+
+		auth_key_info = (struct auth_key *)buf;
 		auth_key_info->lv.len = sa_params->crypto_params.auth_key_len_bits/8;
 		memcpy(auth_key_info->lv.data, sa_params->crypto_params.auth_key,
 			auth_key_info->lv.len);
 		ah->ICVSize = sa_params->crypto_params.icv_len_bits/8;
-
-		*len += auth_key_info->lv.len;
-		buf += auth_key_info->lv.len;
+		*len += sizeof(struct auth_key);
+		buf += sizeof(struct auth_key);
 	}
-	if (v_sa_params->bDoUDPEncapsulation)
-	{
+
+	if (v_sa_params->bDoUDPEncapsulation) {
 		udp_encap = (struct virtio_ipsec_udp_encapsulation_info *)(buf);
 		// TBD : udp_encap->ulNatTraversalMode = sa_params->nat_info.;
 		udp_encap->d_port = sa_params->nat_info.dest_port;
 		udp_encap->s_port = sa_params->nat_info.src_port;
-
 		*len += sizeof(struct virtio_ipsec_udp_encapsulation_info);
 		buf += sizeof(struct virtio_ipsec_udp_encapsulation_info);
 	}
-	if (v_sa_params->bNotifySoftLifeKBExpiry){
+	if (v_sa_params->bNotifySoftLifeKBExpiry) {
 		notify_kb = (struct virtio_ipsec_notify_lifetime_kb *)(buf);
 		notify_kb->hard_lifetime_in_kb = sa_params->hard_kilobytes_limit;
 		notify_kb->soft_lifetime_in_kb = sa_params->soft_kilobytes_limit;
@@ -668,8 +641,8 @@ int32_t virt_ipsec_msg_sa_add( u32 *handle,
 	/* Account for the result */
 	*result_ptr = buf_start + (*len);
 	v_create_sa->sa_len = *len;
-	*len += sizeof(struct virtio_ipsec_ctrl_result);
 	*msg = buf_start;
+	*len += sizeof(struct virtio_ipsec_ctrl_result);
 
 	return VIRTIO_IPSEC_SUCCESS;
 }
@@ -768,6 +741,7 @@ int32_t virt_ipsec_msg_sa_mod
 	buf += sizeof(struct virtio_ipsec_ctrl_hdr);
 
 	update_sa =(struct virtio_ipsec_update_sa *)buf;
+	buf += sizeof(struct virtio_ipsec_update_sa);
 
 	if (g_hw_handle != NULL)
 		memcpy(update_sa->group_handle, 

@@ -38,6 +38,8 @@
 /*! Cipher Key size */
 #define VIRTIO_IPSEC_MAX_CIPHER_KEY_SIZE	64
 
+#define VIRTIO_IPSEC_MAX_KEY_IV_LEN 64
+
 /*! SA Handle size */
 #define VIRTIO_IPSEC_SA_HANDLE_SIZE	8	
 
@@ -102,13 +104,13 @@
 struct virtio_ipsec_ctrl_hdr {
 	u8 class;  /*! class of command */
 	u8 cmd;   /*! actual command */
-}; 
+}__attribute__((packed)); 
 
 /*! Data structure for control queue result */
 struct virtio_ipsec_ctrl_result {
 	u8 result;	/*! VIRTIO_IPSEC_OK or VIRTIO_IPSEC_ERR */
 	u8 result_data; /*! error information if any */
-};
+}__attribute__((packed));
 
 /*! Enumerations */
 /*! Defines for the result field */
@@ -305,12 +307,12 @@ struct virtio_ipsec_set_guest_endian {
 
 /*! Group Add data structure */
 struct virtio_ipsec_group_add{
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE]; 
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE]; 
 }__attribute__((packed));
 
 /*! Group delete data structure */
 struct virtio_ipsec_group_delete{
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE]; 
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE]; 
 }__attribute__((packed));
 
 
@@ -371,7 +373,7 @@ struct virtio_ipsec_udp_encapsulation_info
 struct virtio_ipsec_lv
 {
 	u32 len;	/*! Length of following data */
-	u8 data[0];	/*! actual data */
+	u8 data[VIRTIO_IPSEC_MAX_KEY_IV_LEN];	/*! actual data */
 }__attribute__((packed));
 
 /*! ESP information */
@@ -418,19 +420,19 @@ struct virtio_ipsec_ah_info
 struct virtio_ipsec_notify_lifetime_kb {
 	u32 soft_lifetime_in_kb; /*! Soft lifetime in kb */
 	u32 hard_lifetime_in_kb; /*! hard lifteime in kb */
-};
+}__attribute__((packed));
 
 /*! Periodic sequence number notification */
 struct virtio_ipsec_notify_seqnum_periodic {
 	u32 seqnum_interval; /*! Notification interval */
-};
+}__attribute__((packed));
 
 /*! Structure to create SA */
 struct virtio_ipsec_create_sa{
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
 	/*! Input: Optional Group Handle when a group was 
 	   previously created; All 0s indicate an invalid group handle */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! Output */
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! Output */
 	u32 num_sas; /*! number of SAs in the SA bundle */
 	u32 sa_len; /*! length of following SA information */
 	struct virtio_ipsec_sa_params sa_params; /*! Input */
@@ -499,11 +501,11 @@ struct virtio_ipsec_update_sa_antireplay {
 
 /*! Update SA */
 struct virtio_ipsec_update_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
 	u8 changeType;  /*! LOCAL_GW, REMOTE_GW etc. */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! SA Handle */
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! SA Handle */
 	/*! The structure that follows would be either 
         struct virtio_ipsec_update_sa_ipaddr_v4 or 
         struct virtio_ipsec_update_sa_ipaddr_v6 based on whether the 
@@ -512,10 +514,10 @@ struct virtio_ipsec_update_sa {
 
 /*! Delete SA */
 struct virtio_ipsec_delete_sa{
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! SA Handle */
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! SA Handle */
 }__attribute__((packed));
 
 /*! Seq number information */
@@ -526,11 +528,11 @@ struct virtio_ipsec_out_sa_info {
 
 /*! Get SA message */
 struct virtio_ipsec_read_out_sa_exact {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
           All 0s indicate an invalid group handle */
 
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! SA Handle */
 	struct virtio_ipsec_out_sa_info info;
 	/*! Seq number information */
@@ -542,14 +544,14 @@ struct virtio_ipsec_read_out_sa_exact {
 
 /*! Read N SAs */
 struct virtio_ipsec_read_out_n_first_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
 	u32 num_sas; /*!Number of SAs to read */ 
-	u32	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
+	u8	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
         /*! Output by Accelerator; Input for next n calls */
 	/*! Array of the following */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! SA handle */
 	struct virtio_ipsec_out_sa_info info;
 	/*! SA Sequence number */
@@ -561,14 +563,14 @@ struct virtio_ipsec_read_out_n_first_sa {
 
 /*! Read Next N SAs */
 struct virtio_ipsec_read_out_n_next_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
 	u32 num_sas; /*! Number of SAs */
-	u32	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
+	u8	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
         /*! Output by Accelerator; Input for next n calls */
 	/*! Array of sa_handle, seq number information, sa params*/ 
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	struct virtio_ipsec_out_sa_info info;
     	struct virtio_ipsec_sa_params sa_params; 
 	/*! Followed by structures based on the flag bits in sa_params */
@@ -582,10 +584,10 @@ struct virtio_ipsec_in_sa_info {
 
 /*! Read In SA */
 struct virtio_ipsec_read_in_sa_exact {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! SA handle */
 	struct virtio_ipsec_in_sa_info info;
 	/*! Sequence number information */
@@ -597,15 +599,15 @@ struct virtio_ipsec_read_in_sa_exact {
 
 /*! Read First N SA */
 struct virtio_ipsec_read_in_n_first_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
 	u32 num_sas;
 	/*! Number of SAs to read */
-	u32	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
+	u8	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
         /*! Output by Accelerator; Input for next n calls */
 	/*! Array of sa_handle, info, sa_params etc */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	struct virtio_ipsec_in_sa_info info;
 	struct virtio_ipsec_sa_params sa_params;
 	/*! Followed by structures based on the flag bits in sa_params */
@@ -614,15 +616,15 @@ struct virtio_ipsec_read_in_n_first_sa {
 
 /*! Read Next N SA */
 struct virtio_ipsec_read_in_n_next_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /* Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
 	u32 num_sas; 
 	/*! Number of SAs to read */
-	u32	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
+	u8	opaque_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; 
         /*! Output by Accelerator; Input for next n calls */
 	/*! Array of the following */
-	u32	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	struct virtio_ipsec_in_sa_info info;
 	struct virtio_ipsec_sa_params sa_params;
 	/* Followed by structures based on the flag bits in sa_params */
@@ -630,7 +632,7 @@ struct virtio_ipsec_read_in_n_next_sa {
 
 /*! Flush SA */
 struct virtio_ipsec_flush_sa {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Valid Group Handle */
 }__attribute__((packed));
 
@@ -648,9 +650,9 @@ struct virtio_ipsec_notify_lifetime_kb_expiry
 {
 	enum virtio_ipsec_notify_event notify_event; 
         /*! Value = VIRTIO_IPSEC_NOTIFY_LIFETIME_KB_EXPIRY */
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Optional Group Handle */
-	u32	sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! SA Handle */
 	u32	lifetime_in_kb;	/* Current Lifetime in Kb */
 	/*! lifetime information */
@@ -662,9 +664,9 @@ struct virtio_ipsec_notify_before_seqnum_overflow
 {
 	enum virtio_ipsec_notify_event notify_event; 
         /*! Value = VIRTIO_IPSEC_NOTIFY_BEFORE_SEQNUM_OVERFLOW  */
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Optional Group Handle */
-	u32	sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8	sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! sa handle */
 	u32	seqnum;	/* Current Sequence Number */
 	/*! sequence number */
@@ -675,9 +677,9 @@ struct virtio_ipsec_notify_periodic_seqnum
 {
 	enum virtio_ipsec_notify_event notify_event; 
         /*! Value = VIRTIO_IPSEC_NOTIFY_SEQNUM_PERIODIC */
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8 group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Optional Group Handle */
-	u32 sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
+	u8 sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE];
 	/*! SA handle */
 	u32 seqnum;	/* Current sequence number */
 	/*! Sequence number */
@@ -693,10 +695,10 @@ The rest of the buffers will have only data.
 */
 /*! Data structure for data processing */
 struct virtio_ipsec_hdr {
-	u32	group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
+	u8 group_handle[VIRTIO_IPSEC_GROUP_HANDLE_SIZE];	  
         /*! Input: Optional Group Handle when a group was previously created; 
            All 0s indicate an invalid group handle */
-	u32 sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! IPsec SA  Context */
+	u8 sa_context_handle[VIRTIO_IPSEC_SA_HANDLE_SIZE]; /*! IPsec SA  Context */
 	u32 num_input_buffers; /*! Number of input buffers  */
 	u32 input_data_length;  /*! Length of input data */
 	u32 num_output_buffers; /*! Number of output buffers */
@@ -804,7 +806,7 @@ int32_t virt_ipsec_msg_sa_del(
  *
  * @ingroup VIRTIO_IPSEC
  */
-int32_t virt_ipsec_msg_sa_add( u32 *handle, 
+int32_t virt_ipsec_msg_sa_add(u32 *handle, 
 	 const struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
 	 u8 **result_ptr);
 

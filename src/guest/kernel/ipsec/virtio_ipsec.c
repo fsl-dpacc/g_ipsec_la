@@ -1835,14 +1835,13 @@ int32_t virt_ipsec_send_cmd(struct virt_ipsec_info *dev,
 	sgs[0] = &data;
 
 	/* Need to check if lock is required here */
-	virtqueue_add_sgs(dev->cvq->vq,sgs, 1, 0, cmd_ctx, GFP_ATOMIC);
-
+	virtqueue_add_sgs(dev->cvq->vq, sgs, 1, 0, cmd_ctx, GFP_ATOMIC);
+	cmd_ctx->cond = false;	/* do this before vq kick */
 	// TODO: find why kick does not work - if (unlikely(!virtqueue_kick(dev->cvq->vq)))
 	if (unlikely(!virtqueue_notify(dev->cvq->vq)))
 		return VIRTIO_IPSEC_FAILURE;
 
 	if (cmd_ctx->b_wait == true) {
-		cmd_ctx->cond = false;
 		wait_event_interruptible(cmd_ctx->waitq,cmd_ctx->cond);
 	}
 	return VIRTIO_IPSEC_SUCCESS;
@@ -3312,7 +3311,7 @@ int32_t virt_ipsec_packet_encap(
 	struct virt_ipsec_data_ctx *d_ctx;
 	u8 max;
 	bool b_lock = false;
-	int i;
+	int i, j;
 	u32 *g_hw_handle;
 	u32 *app_index = (u32 *)&(handle->handle[0]);
 	u32 *group_index = (u32 *)&(handle->group_handle[0]);
@@ -3394,37 +3393,37 @@ int32_t virt_ipsec_packet_encap(
 
 	if (g_hw_handle)
 		memcpy(hdr->group_handle, g_hw_handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
+	else memset(hdr->group_handle, 0, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
 	memcpy(hdr->sa_context_handle, sa->hw_sa_handle, VIRTIO_IPSEC_SA_HANDLE_SIZE);
-	hdr->num_input_buffers = num_sg;
-	hdr->input_data_length = 0;
-	for (i=0; i < hdr->num_input_buffers; i++)
-		hdr->input_data_length += in_data[i].length;
-	hdr->num_output_buffers = num_sg;
-	hdr->output_data_length = 0;
-	for (i=0; i < hdr->num_output_buffers; i++)
-		hdr->output_data_length += out_data[i].length;
-	VIRTIO_IPSEC_CHECK("HWhdl 0x%x:%x sgs %d len in/out %d/%d\n",
-		EXPAND_HANDLE(sa->hw_sa_handle), num_sg,
-		hdr->input_data_length, hdr->output_data_length);
 
 	d_ctx->cb_fn = resp->cb_fn;
 	d_ctx->cb_arg_len = resp->cb_arg_len;
 	memcpy(d_ctx->cb_arg, resp->cb_arg, resp->cb_arg_len);
 	memcpy(d_ctx->sa_hndl.handle, sa_ref->hndl.handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
 
-	sg_init_table(encap_q_pair->encap_q.sg,MAX_SKB_FRAGS+2);
-
 	/* Need to see if we can get the headroom in the first buffer */
-	sg_set_buf(&(encap_q_pair->encap_q.sg[0]), hdr, sizeof(struct virtio_ipsec_hdr));
-	for (i=1; i < num_sg; i++)
-		sg_set_buf(&(encap_q_pair->encap_q.sg[i]),in_data[i].buffer,in_data[i].length);
-	for (; i < num_sg; i++)
-		sg_set_buf(&(encap_q_pair->encap_q.sg[i]), out_data[i].buffer, out_data[i].length);
+	sg_init_table(encap_q_pair->encap_q.sg, MAX_SKB_FRAGS+2);
+	sg_init_one(&encap_q_pair->encap_q.sg[0], hdr, sizeof(struct virtio_ipsec_hdr));
+	hdr->num_input_buffers = num_sg;
+	hdr->input_data_length = 0;
+	for (i=1, j=0; i < num_sg+1; i++, j++) {
+		hdr->input_data_length += in_data[j].length;
+		sg_init_one(&encap_q_pair->encap_q.sg[i],in_data[j].buffer,in_data[j].length);
+	}
+	hdr->num_output_buffers = num_sg;
+	hdr->output_data_length = 0;
+	for (j=0; i < 2*num_sg+1; i++, j++) {
+		hdr->output_data_length += out_data[j].length;
+		sg_init_one(&encap_q_pair->encap_q.sg[i], out_data[j].buffer, out_data[j].length);
+	}
+	VIRTIO_IPSEC_CHECK("HWhdl 0x%x:%x sgs %d len in/out %d/%d\n",
+		EXPAND_HANDLE(sa->hw_sa_handle), num_sg,
+		hdr->input_data_length, hdr->output_data_length);
 	pending_data_blocks_inc(sa);
 	num_pending_sa_ops_inc(app, group, sa);
 
 	ret = virtqueue_add_sgs(encap_q_pair->encap_q.vq, encap_q_pair->encap_q.sg_ptr,
-		num_sg, num_sg, d_ctx, GFP_ATOMIC);
+		num_sg+1, num_sg, d_ctx, GFP_ATOMIC);
 	if (ret != VIRTIO_IPSEC_SUCCESS)
 		goto err;
 
@@ -3901,15 +3900,13 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 		vqs, callbacks, names);
 	if (ret)
 		goto err_find;
+	for (i = 0; i < total_vqs; ++i)
+		printk("vq[%d]=%p\n", i, vqs[i]);
 
-	for (i=0; i < max_queue_pairs; i++)
-	{
-		printk("vq[%d] decap %p encap %p\n", i, vqs[decap2vq(i)], vqs[encap2vq(i)]);
+	for (i=0; i < max_queue_pairs; i++) {
 		ipsec_dev->data_q_pair[i].decap_q.vq = vqs[decap2vq(i)];
 		ipsec_dev->data_q_pair[i].encap_q.vq = vqs[encap2vq(i)];
 	}
-
-	printk("cvq %p nvq %p\n", vqs[0], vqs[total_vqs-1]);
 	ipsec_dev->cvq->vq = vqs[0];
 	if (ipsec_dev->b_notify_q)
 		ipsec_dev->nvq->vq = vqs[total_vqs-1];

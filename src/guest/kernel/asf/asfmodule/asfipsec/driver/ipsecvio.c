@@ -166,6 +166,7 @@ void asf_virtio_interface_init()
 				__FILE__, __func__, __LINE__);
 			return;
 		}
+		info->device_name[15] = 0;
 		strncpy(_asf_device->name, info->device_name, 16);
 	}
 #endif
