@@ -57,9 +57,7 @@ extern char *periodic_errmsg[];
 		smp_processor_id(), __LINE__, __func__, ##arg); \
 	} while (0)
 
-/* AVS: 09/01/15
-#define ASF_DEBUG
-*/
+//#define ASF_DEBUG
 
 #ifdef ASF_DEBUG
 #define asf_warn(fmt, arg...)  \
@@ -90,6 +88,9 @@ extern char *periodic_errmsg[];
 #else
 #define asf_debug_l2(fmt, arg...)
 #endif
+
+#define asf_pkt		asf_debug/*asf_err*/
+#define asf_flow		/*asf_debug*/asf_err
 
 #define isprint(c)      ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || \
 		(c >= '0' && c <= '9'))

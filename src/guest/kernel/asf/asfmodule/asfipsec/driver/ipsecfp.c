@@ -139,8 +139,8 @@ void secfp_desc_free(void *desc)
 	}
 	return;
 }
-#ifdef CONFIG_ASF_SEC3x
 
+#ifdef CONFIG_ASF_SEC3x
 static inline void update_chan_out(outSA_t *pSA)
 {
 #ifdef CONFIG_SMP
@@ -346,6 +346,7 @@ int secfp_init(void)
 		return SECFP_FAILURE;
 	}
 #else
+	printk("===%s:%d not creating desc_CACHE\n", __func__, __LINE__);
 #ifndef CONFIG_VIRTIO
 	desc_cache = kmem_cache_create("desc_cache",
 #ifndef CONFIG_ASF_SEC4x
@@ -507,7 +508,6 @@ secfp_finishOutPacket(struct sk_buff *skb, outSA_t *pSA,
 	iph->version = pSA->ipHdrInfo.hdrdata.iphv4.version;
 	iph->ihl = (unsigned char)5;
 	iph->id = secfp_getNextId();
-
 	if (!pSA->SAParams.bCopyDscp) {
 		/* We have set the DSCP value from the SA, We need to copy
 			the ESN related from the packet */
@@ -675,6 +675,11 @@ send_l2blob:
 		}
 #endif
 		ASFIPSecCbFn.pFnRefreshL2Blob(ulVSGId, pSA->ulTunnelId,
+			ulSPDContainerIndex,
+			ptrIArray_getMagicNum(&(secfp_OutDB),
+				ulSPDContainerIndex), &TunAddress,
+			pSA->SAParams.ulSPI, pSA->SAParams.ucProtocol);
+		ASFIPSecCbFn.pFnRefreshL2Blob_First(ulVSGId, pSA->ulTunnelId,
 			ulSPDContainerIndex,
 			ptrIArray_getMagicNum(&(secfp_OutDB),
 				ulSPDContainerIndex), &TunAddress,
@@ -1290,7 +1295,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 		pNextSkb = skb->next;
 		skb->next = NULL;
 		if (skb->len > pSA->ulInnerPathMTU) {
-			ASFIPSEC_DEBUG("Packet size is > Path MTU and fragment bit set in SA or packet");
+			ASFIPSEC_ERR("Packet size is > Path MTU and fragment bit set in SA or packet\n");
 			/* Need to send to normal path */
 			ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA, ASF_IPSEC_PP_POL_CNT21);
 			icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0,
@@ -1330,14 +1335,15 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			"skb= 0x%x, skb->data= 0x%x, skb->dev= 0x%x\n",
 			(int)skb, (int)skb->data, (int)skb->dev);
 #ifndef ASF_QMAN_IPSEC
-		/* Keeping REF_INDEX as 2, one for the h/w
-		and one for the core */
+#ifdef CONFIG_VIRTIO
+		skb->cb[SECFP_REF_INDEX] = 1;
+#else
+		/* Keeping REF_INDEX as 2, one for the h/w and one for the core */
 		skb->cb[SECFP_REF_INDEX] = 2;
-
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
-			ASFIPSEC_DPERR("desc allocation failure");
+			ASFIPSEC_DPERR("desc allocation failure\n");
 			goto drop_skb_list;
 		}
 		if ((secout_sg_flag & SECFP_SCATTER_GATHER)
@@ -1346,7 +1352,8 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 						desc, 0);
 		else
 			pSA->prepareOutDescriptor(skb, pSA, desc, 0);
-#endif /*ASF_QMAN_IPSEC*/
+#endif /* CONFIG_VIRTIO */
+#endif /* ASF_QMAN_IPSEC */
 
 		ASFIPSEC_FPRINT("Pkt Pre Processing len=%d", skb->len);
 		ASFIPSEC_HEXDUMP(skb->data, skb->len);
@@ -1359,7 +1366,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 		ASFIPSEC_HEXDUMP(skb->data, skb->len);
 
 		if (skb->cb[SECFP_ACTION_INDEX] == SECFP_DROP) {
-			ASFIPSEC_DPERR("Packet Action is Drop");
+			ASFIPSEC_DPERR("Packet Action is Drop\n");
 			skb->data_len = 0;
 #ifndef ASF_QMAN_IPSEC
 			SECFP_DESC_FREE(desc);
@@ -1376,6 +1383,8 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			pSA->outComplete, (void *)skb) == -EAGAIN)
 #elif defined(ASF_QMAN_IPSEC)
 		if (secfp_qman_out_submit(pSA, (void *) skb))
+#elif defined(CONFIG_VIRTIO)
+		if (secfp_vio_encap(pSA, skb, pSA->outComplete, (void *)skb))
 #else
 		if (caam_jr_enqueue(pSA->ctx.jrdev,
 			((struct aead_edesc *)desc)->hw_desc,
@@ -1383,8 +1392,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
-			ASFIPSEC_DEBUG("Outbound Submission to"\
-					"SEC failed ");
+			ASFIPSEC_ERR("Outbound Submission to SEC failed\n");
 			snprintf(aMsg, ASF_MAX_MESG_LEN - 1,
 				"Cipher Operation Failed-5");
 			AsfLogInfo.ulMsgId = ASF_IPSEC_LOG_MSG_ID3;
@@ -1401,6 +1409,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			SECFP_DESC_FREE(desc);
 			goto drop_skb_list;
 		}
+
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
 //#ifndef CONFIG_ASF_SEC4x
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
@@ -1413,11 +1422,10 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			desc = secfp_desc_alloc();
 			if (!desc) {
 				ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
-				ASFIPSEC_WARN("desc allocation failure");
+				ASFIPSEC_ERR("desc allocation failure\n");
 				if (skb->cb[SECFP_REF_INDEX] != 0) {
 					skb->cb[SECFP_ACTION_INDEX] = SECFP_DROP;
 				} else {
-
 					/* So, we can release it */
 					skb->data_len = 0;
 					goto drop_skb_list;
@@ -1436,8 +1444,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 			if (talitos_submit(pdev, pSA->chan, desc,
 					pSA->outComplete,
 					(void *)skb) == -EAGAIN) {
-				ASFIPSEC_WARN("Outbound Submission to"\
-						"SEC failed ");
+				ASFIPSEC_ERR("Outbound Submission to SEC failed\n");
 				ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT13]);
 				ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA, ASF_IPSEC_PP_POL_CNT13);
 				/* We cannot free the skb now, as it is submitted to h/w */
@@ -1459,7 +1466,7 @@ static inline int secfp_try_fastPathOutv6(unsigned int ulVSGId,
 		}
 		if (skb->cb[SECFP_REF_INDEX] == 0) {
 			/* Some error happened in the c/b. Free the skb */
-			ASFIPSEC_DEBUG("O/b Proc Completed REF_CNT == 0, freeing the skb");
+			ASFIPSEC_ERR("O/b Proc Completed REF_CNT == 0, freeing the skb\n");
 			skb->data_len = 0;
 			goto drop_skb_list;
 		}
@@ -1575,7 +1582,7 @@ static inline int secfp_try_fastPathOutv4(
 
 	ASFIPSEC_FPRINT("*****secfp_out: Pkt received skb->len = %d,"\
 		"iph->tot_len = %d", skb1->len, iph->tot_len);
-	ASFIPSEC_HEXDUMP(skb->data - 14, skb1->len + 14);
+	//ASFIPSEC_HEXDUMP(skb->data - 14, skb1->len + 14);
 
 	pSA = secfp_findOutSA(ulVSGId, pSecInfo, skb1, iph->tos,
 			&pContainer, &bRevalidate);
@@ -1616,6 +1623,7 @@ static inline int secfp_try_fastPathOutv4(
 						ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA,
 						ASF_IPSEC_PP_POL_CNT22);
 						rcu_read_unlock();
+						ASFIPSEC_ERR("asfIpv4Fragment failed\n");
 						return 0;
 					}
 		skb1 = skb;
@@ -1623,6 +1631,7 @@ static inline int secfp_try_fastPathOutv4(
 #else /*MINIMUM MODE*/
 		/* Fragmentation is not handled in minimum mode */
 		skb->data_len = 0;
+		ASFIPSEC_ERR("min mode; no frags supported\n");
 		goto drop_skb_list;
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
 	}
@@ -1635,6 +1644,7 @@ static inline int secfp_try_fastPathOutv4(
 #else /*MINIMUM MODE*/
 			/* Fragmentation is not handled in minimum mode */
 			skb->data_len = 0;
+			ASFIPSEC_ERR("min mode; no frags supported\n");
 			goto drop_skb_list;
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
 	}
@@ -1648,9 +1658,8 @@ static inline int secfp_try_fastPathOutv4(
 	{
 		pNextSkb = skb->next;
 		skb->next = NULL;
-		ASFIPSEC_DEBUG("outv4: skb = 0x%x skb1 = 0x%x, nextSkb = 0x%x",
-			(unsigned int) skb, (unsigned int) skb1,
-			(unsigned int) pNextSkb);
+		ASFIPSEC_DEBUG("outv4: skb = %p skb1 = %p, nextSkb = %p",
+			skb, skb1, pNextSkb);
 		/* SEC overhead already accounted for in Inner path MTU */
 		if (unlikely(skb->len > pSA->ulInnerPathMTU)) {
 			ASFIPSEC_DEBUG("Total Leng is > ulPathMTU "
@@ -1662,8 +1671,7 @@ static inline int secfp_try_fastPathOutv4(
 				struct sk_buff *tempSkb;
 				ASFIPSEC_DEBUG("Red side fragmentation is enabled");
 				if (iph->frag_off & IP_DF) {
-					ASFIPSEC_DEBUG("DF Bit is set while"\
-						" Red side fragmentation is enabled");
+					ASFIPSEC_ERR("DF Bit is set while Red side fragmentation is enabled\n");
 					snprintf(aMsg, ASF_MAX_MESG_LEN - 1,
 						"Packet size is > Path MTU and fragment"
 						"bit set in SA or packet");
@@ -1694,6 +1702,7 @@ static inline int secfp_try_fastPathOutv4(
 						IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT22]);
 					ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA,
 						ASF_IPSEC_PP_POL_CNT22);
+					ASFIPSEC_ERR("asfIpv4Fragment failed\n");
 					goto drop_skb_list;
 				}
 				tempSkb = skb->next;
@@ -1705,8 +1714,7 @@ static inline int secfp_try_fastPathOutv4(
 				if (((pSA->SAParams.handleDf == SECFP_DF_SET) ||
 				((iph->frag_off & IP_DF) && (pSA->SAParams.handleDf
 				== SECFP_DF_COPY)) || pSA->ipHdrInfo.bIpVersion)) {
-					ASFIPSEC_DEBUG("Packet size is > Path MTU"\
-							"and fragment bit set in SA or packet");
+ 					ASFIPSEC_ERR("Packet size is > Path MTU and fragment bit set in SA or packet\n");
 					snprintf(aMsg, ASF_MAX_MESG_LEN - 1,
 							"Packet size is > Path MTU and fragment"
 							"bit set in SA or packet");
@@ -1768,17 +1776,16 @@ static inline int secfp_try_fastPathOutv4(
 		ASFIPSEC_DBGL2("Before secfp-submit:"
 			"skb= 0x%x, skb->data= 0x%x, skb->dev= 0x%x\n",
 			(int)skb, (int)skb->data, (int)skb->dev);
-//#ifndef ASF_QMAN_IPSEC
-#if !defined(ASF_QMAN_IPSEC) || !defined(CONFIG_VIRTIO)
-		/* Keeping REF_INDEX as 2, one for the h/w
-		and one for the core */
+#ifndef ASF_QMAN_IPSEC
+#ifdef CONFIG_VIRTIO
+		skb->cb[SECFP_REF_INDEX] = 1;
+#else
+		/* Keeping REF_INDEX as 2, one for the h/w and one for the core */
 		skb->cb[SECFP_REF_INDEX] = 2;
-
-#if 0
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
-			ASFIPSEC_WARN("desc allocation failure");
+			ASFIPSEC_ERR("desc allocation failure\n");
 			goto drop_skb_list;
 		}
 		if ((secout_sg_flag & SECFP_SCATTER_GATHER)
@@ -1787,21 +1794,21 @@ static inline int secfp_try_fastPathOutv4(
 						desc, 0);
 		else
 			pSA->prepareOutDescriptor(skb, pSA, desc, 0);
-#endif
-#endif /*ASF_QMAN_IPSEC CONFIG_VIRTIO*/
+#endif /* CONFIG_VIRTIO */
+#endif /* ASF_QMAN_IPSEC */
 
 		ASFIPSEC_FPRINT("Pkt Pre Processing len=%d", skb->len);
-		ASFIPSEC_HEXDUMP(skb->data, skb->len);
-#if 0
+		//ASFIPSEC_HEXDUMP(skb->data, skb->len);
+#if 1
 		(*pSA->finishOutPktFnPtr)(skb, pSA, pContainer,
 				pOuterIpHdr, ulVSGId,
 			pSecInfo->outContainerInfo.ulSPDContainerId);
 
 		ASFIPSEC_FPRINT("Pkt Post Processing %d", skb->len);
-		ASFIPSEC_HEXDUMP(skb->data, skb->len);
+		//ASFIPSEC_HEXDUMP(skb->data, skb->len);
 
 		if (skb->cb[SECFP_ACTION_INDEX] == SECFP_DROP) {
-			ASFIPSEC_DPERR("Packet Action is Drop");
+			ASFIPSEC_DPERR("Packet Action is Drop\n");
 			skb->data_len = 0;
 			goto drop_skb_list;
 		}
@@ -1824,8 +1831,7 @@ static inline int secfp_try_fastPathOutv4(
 #endif
 		{
 #ifdef ASFIPSEC_LOG_MSG
-			ASFIPSEC_DEBUG("Outbound Submission to"\
-					"SEC failed ");
+			ASFIPSEC_ERR("Outbound Submission to SEC failed\n");
 			snprintf(aMsg, ASF_MAX_MESG_LEN - 1,
 				"Cipher Operation Failed-5");
 			AsfLogInfo.ulMsgId = ASF_IPSEC_LOG_MSG_ID3;
@@ -1842,9 +1848,10 @@ static inline int secfp_try_fastPathOutv4(
 			//SECFP_DESC_FREE(desc);
 			goto drop_skb_list;
 		}
+
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-//#ifdef CONFIG_ASF_SEC3x
-#if defined(CONFIG_ASF_SEC3x) && !defined(CONFIG_VIRTIO)
+#ifdef CONFIG_ASF_SEC3x
+//#if defined(CONFIG_ASF_SEC3x) && !defined(CONFIG_VIRTIO)
 		skb->cb[SECFP_REF_INDEX]--;
 		if (pSA->option[1] != SECFP_NONE) {
 			ASFIPSEC_DEBUG("2nd Iteration");
@@ -1854,7 +1861,7 @@ static inline int secfp_try_fastPathOutv4(
 			desc = secfp_desc_alloc();
 			if (!desc) {
 				ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
-				ASFIPSEC_WARN("desc allocation failure");
+				ASFIPSEC_ERR("desc allocation failure\n");
 				if (skb->cb[SECFP_REF_INDEX] != 0) {
 					skb->cb[SECFP_ACTION_INDEX] = SECFP_DROP;
 				} else {
@@ -1878,8 +1885,7 @@ static inline int secfp_try_fastPathOutv4(
 					pSA->outComplete,
 					(void *)skb) == -EAGAIN)
 			{
-				ASFIPSEC_WARN("Outbound Submission to"\
-						"SEC failed ");
+				ASFIPSEC_ERR("Outbound Submission to SEC failed\n");
 				ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT13]);
 				ASF_IPSEC_INC_POL_PPSTATS_CNT(pSA, ASF_IPSEC_PP_POL_CNT13);
 				/* We cannot free the skb now, as it is submitted to h/w */
@@ -1900,7 +1906,7 @@ static inline int secfp_try_fastPathOutv4(
 		}
 		if (skb->cb[SECFP_REF_INDEX] == 0) {
 			/* Some error happened in the c/b. Free the skb */
-			ASFIPSEC_DEBUG("O/b Proc Completed REF_CNT == 0, freeing the skb");
+			ASFIPSEC_ERR("O/b Proc Completed REF_CNT == 0, freeing the skb\n");
 			skb->data_len = 0;
 			goto drop_skb_list;
 		}
@@ -1923,6 +1929,7 @@ no_sa:
 				VPN_TOT_OVHD, VPN_HDROOM)) {
 				ASFIPSEC_DEBUG("asflLinearize failed");
 				ASFSkbFree(skb1);
+				ASFIPSEC_ERR("asfReasmLinearize failed\n");
 				return 0;
 			}
 			skb_reset_network_header(skb1);
@@ -1935,6 +1942,7 @@ no_sa:
 #ifdef CONFIG_DPA
 		asf_dec_skb_buf_count(skb);
 #endif
+printk("%s:%d calling asfctrl_ipsec_fn_NoOutSA\n", __func__, __LINE__);
 		ASFIPSecCbFn.pFnNoOutSA(ulVSGId , NULL, Buffer,
 				secfp_SkbFree, skb1, bSPDContainerPresent,
 				bRevalidate);
@@ -2041,7 +2049,7 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 	skb->cb[SECFP_REF_INDEX]--;
 	if (skb->cb[SECFP_REF_INDEX]) {
 		ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT13]);
-		/* Waiting for another iteration to complete */
+		ASFIPSEC_DEBUG("%s:%d waiting with ref_index %d\n", __func__, __LINE__, skb->cb[SECFP_REF_INDEX]);
 		if (error)
 			skb->cb[SECFP_ACTION_INDEX] = SECFP_DROP;
 		return;
@@ -2089,7 +2097,7 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 	}
 #endif
 	ASFIPSEC_FPRINT("Sending packet to:"
-		"skb = 0x%x, skb->data = 0x%x, skb->dev = 0x%x, skb->len = %d*",
+		"skb = %p, skb->data = %p, skb->dev = %p, skb->len = %d*",
 		skb, skb->data, skb->dev, skb->len);
 	if (skb_shinfo(skb)->nr_frags) {
 		skb_frag_t *frag;
@@ -2099,11 +2107,11 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 		frag = &(skb_shinfo(skb)->frags[total_frags - 1]);
 		charp = (u8 *)(page_address((const struct page *)frag->page.p) +
 					frag->page_offset);
-		ASFIPSEC_HEXDUMP(skb->data, skb_headlen(skb));
-		ASFIPSEC_HEXDUMP(charp, frag->size);
+		//ASFIPSEC_HEXDUMP(skb->data, skb_headlen(skb));
+		//ASFIPSEC_HEXDUMP(charp, frag->size);
 	} else {
 		skb->data_len = 0; /* No req for this field anymore */
-		ASFIPSEC_HEXDUMP(skb->data, skb->len);
+		//ASFIPSEC_HEXDUMP(skb->data, skb->len);
 #ifdef ASF_SECFP_PROTO_OFFLOAD
 		skb_set_tail_pointer(skb, skb->len);
 #endif
@@ -2147,7 +2155,6 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 		if (skb->cb[BUF_INDOMAIN_INDEX])
 			PER_CPU_BP_COUNT(dpa_bp)--;
 #endif
-#ifdef ASF_QOS
 		pSA = (outSA_t *)ptrIArray_getData(&secFP_OutSATable,
 			*(unsigned int *)&(skb->cb[SECFP_SAD_SAI_INDEX]));
 		if (!pSA) {
@@ -2158,10 +2165,13 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 			ASFSkbFree(skb);
 			return;
 		}
+#ifdef ASF_QOS
 
 		/* Enqueue the packet in Linux QoS framework */
 		asf_qos_handling(skb, &pSA->tc_filter_res);
 #else
+		skb->dev = pSA->odev;
+		asf_pkt("skb %p len %d outdev %s\n", skb, skb->len, skb->dev->name);
 		txq = netdev_get_tx_queue(skb->dev, skb->queue_mapping);
 		netdev = skb->dev;
 		if (asfDevHardXmit(skb->dev, skb) != 0) {
@@ -2194,8 +2204,8 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 			if (likely(pSA && pSA->bl2blob)) {
 
 				ASFIPSEC_FPRINT("Sending packet to gfar:"
-					"skb = 0x%x, skb->data = 0x%x,"
-					"skb->dev = 0x%x, skb->len = %d*****",
+					"skb = %p, skb->data = %p,"
+					"skb->dev = %p, skb->len = %d*****",
 					skb, skb->data, skb->dev, skb->len);
 				ASFIPSEC_FPRINT("Printing SEC Header ");
 				ASFIPSEC_HEXDUMP(skb->data, skb->len);
@@ -2250,8 +2260,8 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 #endif
 						asf_set_queue_mapping(pOutSkb,
 								iph->tos);
-					ASFIPSEC_FPRINT("Next skb = 0x%x", pTempSkb);
-					ASFIPSEC_FPRINT("Frag : skb = 0x%x, skb->data = 0x%x, skb->dev = 0x%x, skb->len = %d*****",
+					ASFIPSEC_FPRINT("Next skb = %p", pTempSkb);
+					ASFIPSEC_FPRINT("Frag : skb = %p, skb->data = %p, skb->dev = %p, skb->len = %d*****",
 						pOutSkb, pOutSkb->data, pOutSkb->dev, pOutSkb->len);
 					ASFIPSEC_HEXDUMP(pOutSkb->data,
 							pOutSkb->len);
@@ -2267,12 +2277,12 @@ void secfp_outComplete(struct device *dev, u32 *pdesc,
 						/* PPPoE packet.. Set Payload length in PPPoE header */
 						*((short *)&(pOutSkb->data[pSA->ulL2BlobLen-4])) = htons(ntohs(iph->tot_len) + 2);
 					}
-					ASFIPSEC_DEBUG("skb->network_header = 0x%x, skb->transport_header = 0x%x\r\n",
+					ASFIPSEC_DEBUG("skb->network_header = %p, skb->transport_header = %p\n",
 						skb_network_header(pOutSkb), skb_transport_header(pOutSkb));
 
-					ASFIPSEC_FPRINT("skb->network_header = 0x%x, skb->transport_header = 0x%x",
+					ASFIPSEC_FPRINT("skb->network_header = %p, skb->transport_header = %p",
 						skb_network_header(pOutSkb), skb_transport_header(pOutSkb));
-					ASFIPSEC_FPRINT("Transmitting buffer = 0x%x dev->index = %d", pOutSkb, pOutSkb->dev->ifindex);
+					ASFIPSEC_FPRINT("Transmitting buffer = %p dev->index = %d", pOutSkb, pOutSkb->dev->ifindex);
 
 					ASFIPSEC_FPRINT("Fragment offset field = 0x%x", iph->frag_off);
 
@@ -2552,8 +2562,8 @@ static inline int secfp_inCompleteCheckAndTrimPkt(
 		ulStripLen = *pTotLen - inneriph->tot_len;
 #endif /*ASF_SECFP_PROTO_OFFLOAD*/
 
-	ASFIPSEC_FPRINT("pHeadSkb->data = 0x%x,"
-		"pHeadSkb->data - 20 - 16 =0x%x, pHeadSkb->len = %d",
+	ASFIPSEC_FPRINT("pHeadSkb->data = %p,"
+		"pHeadSkb->data - 20 - 16 = %p, pHeadSkb->len = %d",
 		pHeadSkb->data, pHeadSkb->data - 20 - 16, *pTotLen);
 	ASFIPSEC_HEXDUMP(pHeadSkb->data,
 		((pHeadSkb->len + 20 + 16 + 20) < 256 ?
@@ -2590,7 +2600,6 @@ static inline int secfp_inCompleteCheckAndTrimPkt(
 			}
 		}
 #endif
-		ASFIPSEC_PRINT("\n PROTO IS %d", *pNextProto);
 	} else if (skb_shinfo(pHeadSkb)->frag_list) {
 #ifndef ASF_SECFP_PROTO_OFFLOAD
 		*pNextProto = pTailSkb->data[pTailSkb->len - 1];
@@ -2612,7 +2621,6 @@ static inline int secfp_inCompleteCheckAndTrimPkt(
 			}
 		}
 #endif
-		ASFIPSEC_PRINT("\n PROTO IS %d", *pNextProto);
 	} else {
 #ifdef ASF_SECFP_PROTO_OFFLOAD
 #ifdef ASF_IPV6_FP_SUPPORT
@@ -2622,13 +2630,14 @@ static inline int secfp_inCompleteCheckAndTrimPkt(
 			+ SECFP_IPV6_HDR_LEN - pHeadSkb->cb[SECFP_ICV_LENGTH] - 1);
 	} else
 #endif
-		*pNextProto = *((u8 *)iph + iph->tot_len
+		*pNextProto = *((u8 *)iph + ntohs(iph->tot_len)
 				- pHeadSkb->cb[SECFP_ICV_LENGTH] - 1);
 #else
 		*pNextProto = pTailSkb->data[pTailSkb->len - 1];
 #endif
-		ASFIPSEC_PRINT("\n PROTO IS %d", *(unsigned int *)pNextProto);
 	}
+	ASFIPSEC_PRINT("PROTO IS %d\n", *pNextProto);
+
 	if ((*pNextProto != SECFP_PROTO_IP) && (*pNextProto != SECFP_PROTO_IPV6)) {
 		ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT11]);
 		rcu_read_lock();
@@ -2740,12 +2749,17 @@ int secfp_inCompleteSAProcess(struct sk_buff **pSkb,
 	struct sk_buff *pHeadSkb;
 	pHeadSkb = *pSkb;
 
-	ASFIPSEC_DEBUG("inComplete: Doing SA related processing");
-	ASFIPSEC_DEBUG("Saved values: ulSPI=%d, ipaddr_ptr=0x%x, ulHashVal=%d",
+	ASFIPSEC_DEBUG("inComplete: Doing SA related processing ");
+	ASFIPSEC_DEBUG("Saved values: ulSPI=0x%x, ipaddr_ptr=0x%x, ulHashVal=%d",
 		*(unsigned int *)&(pHeadSkb->cb[SECFP_SPI_INDEX]),
 		*(unsigned int *)&(pHeadSkb->cb[SECFP_IPHDR_INDEX]),
 		*(unsigned int *)&(pHeadSkb->cb[SECFP_HASH_VALUE_INDEX]));
 
+	/*printk("inComplete: Doing SA related processing ");
+	printk("Saved values: ulSPI=0x%x, ipaddr_ptr=0x%x, ulHashVal=%d\n",
+		*(unsigned int *)&(pHeadSkb->cb[SECFP_SPI_INDEX]),
+		*(unsigned int *)&(pHeadSkb->cb[SECFP_IPHDR_INDEX]),
+		*(unsigned int *)&(pHeadSkb->cb[SECFP_HASH_VALUE_INDEX]));*/
 	rcu_read_lock();
 
 	pSA = secfp_findInSA(*(unsigned int *)&(pHeadSkb->cb[SECFP_VSG_ID_INDEX]),
@@ -2759,6 +2773,7 @@ int secfp_inCompleteSAProcess(struct sk_buff **pSkb,
 		rcu_read_unlock();
 		return 1;
 	}
+
 	pIPSecOpaque->ulInSPDContainerId = pSA->ulSPDInContainerIndex;
 	pIPSecOpaque->ulInSPDMagicNumber = pSA->ulSPDInMagicNum;
 	pIPSecOpaque->ucProtocol = pSA->SAParams.ucProtocol;
@@ -2780,6 +2795,7 @@ int secfp_inCompleteSAProcess(struct sk_buff **pSkb,
 		}
 	}
 #endif
+
 	inneriph = (struct iphdr *)(pHeadSkb->data);
 	if (inneriph->version == 4 &&
 			((inneriph->frag_off) & SECFP_MF_OFFSET_FLAG_NET_ORDER)) {
@@ -2822,8 +2838,6 @@ int secfp_inCompleteSAProcess(struct sk_buff **pSkb,
 		bool isFragmented = 0;
 
 		iph = (struct iphdr *)*(uintptr_t *)&(pHeadSkb->cb[SECFP_IPHDR_INDEX]);
-
-
 #ifdef ASF_IPV6_FP_SUPPORT
 		/* outer IP stuff */
 		if (iph->version == 6) {
@@ -3367,17 +3381,18 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	} else
 #endif
 	{
+		// TODO: kludge - should actually be outer ip hdr version
 		IPSecOpque.DestAddr.bIPv4OrIPv6 = 0;
-		IPSecOpque.DestAddr.ipv4addr = iph->daddr;
+		IPSecOpque.DestAddr.ipv4addr = *(unsigned int *)&(skb->cb[SECFP_GW_IP_INDEX])/*iph->daddr*/;
 	}
 	pIPSecPPGlobalStats =
 		asfPerCpuPtr(pIPSecPPGlobalStats_g, smp_processor_id());
 	pIPSecPPGlobalStats->ulTotInProcSecPkts++;
 
 #ifndef ASF_QMAN_IPSEC
-	ASFIPSEC_DEBUG("InComplete: iteration=%d, desc=0x%x, err = %x"
+	ASFIPSEC_DEBUG("InComplete: iteration=%d, desc=%p, err = 0x%x"
 			"refIndex = %d\n", ++ulNumIter[smp_processor_id()],
-			(unsigned int) desc, err, skb->cb[SECFP_REF_INDEX]);
+			desc, err, skb->cb[SECFP_REF_INDEX]);
 #endif
 
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM) && !defined(CONFIG_ASF_SEC4x)
@@ -3385,6 +3400,12 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 #else
 	skb->cb[SECFP_REF_INDEX] = 0;
 #endif
+/*printk("%s %d skb->cb[SECFP_REF_INDEX] = %d\r\n",__FUNCTION__,__LINE__,skb->cb[SECFP_REF_INDEX]);
+printk("VSG ID %d SPI  %lx   hash %d\r\n",
+              *(unsigned int *)&(skb->cb[SECFP_VSG_ID_INDEX]),
+              *(unsigned int *)&(skb->cb[SECFP_SPI_INDEX]),
+              *(unsigned int *)&(skb->cb[SECFP_HASH_VALUE_INDEX]));*/
+
 	if (unlikely(err)) {
 #if defined(CONFIG_ASF_SEC4x) && !defined(ASF_QMAN_IPSEC)
 		char tmp[SECFP_ERROR_STR_MAX];
@@ -3428,6 +3449,7 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 		ASFSkbFree(skb);
 		return;
 	}
+
 #ifdef ASF_SECFP_PROTO_OFFLOAD
 	/* dealing with inner ip header */
 #ifdef ASF_IPV6_FP_SUPPORT
@@ -3438,7 +3460,7 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	} else
 #endif
 	{
-		skb->len = inneriph->tot_len;
+		skb->len = ntohs(inneriph->tot_len);
 		ip_decrease_ttl(inneriph);
 	}
 #else /*NO ASF_SECFP_PROTO_OFFLOAD*/
@@ -3483,6 +3505,7 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 #endif
 	}
 #endif /*OFFLOAD*/
+
 #ifndef ASF_QMAN_IPSEC
 	if (skb_shinfo(skb)->nr_frags)
 		secfp_free_frags(desc, skb);
@@ -3493,6 +3516,7 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 			&(skb->cb[SECFP_SKB_DATA_DMA_INDEX])),
 		skb_end_pointer(skb) - skb->head);
 #endif /*ASF_QMAN_IPSEC*/
+
 #ifndef ASF_SECFP_PROTO_OFFLOAD
 	if (skb->cb[SECFP_ACTION_INDEX] == SECFP_DROP) {
 		ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT18]);
@@ -3521,13 +3545,37 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	ASFIPSEC_FPRINT("skb->data = 0x%x, skb->data - 20 - 16 =0x%x,"\
 		"skb->len = %d",
 		skb->data, skb->data - 20 - 16, skb->len);
-	ASFIPSEC_HEXDUMP(skb->data, 64);
 #endif /* ASF_SECFP_PROTO_OFFLOAD */
 
 	if (skb_shinfo(skb)->nr_frags == 0)
 		skb->data_len = 0;
 	skb->next = NULL;
 
+#ifdef CONFIG_VIRTIO
+//printk("%s:%d skb %p data %p len %d\r\n", __func__, __LINE__, skb, skb->data, skb->len);
+	// TODO: adjust for other next protos; should be moved down
+	ucNextProto = SECFP_PROTO_IP;
+	// TODO: forcing ref_index to 0 so that vsg_id matches
+	//skb->cb[SECFP_REF_INDEX] = 0;
+	/* set tail pointer */
+	skb_set_tail_pointer(skb, skb->len);
+#if 0
+	/* this is normally called before doing netif_rcv */
+	skb->data -= skb->mac_len;
+	skb->len += skb->mac_len;
+	skb->protocol = eth_type_trans(skb, skb->dev);
+	//skb->ip_summed = CHECKSUM_NONE;
+    if(secfp_set_secpath(skb,
+                      *(unsigned int *)&(skb->cb[SECFP_SPI_INDEX]),
+                      IPSecOpque.DestAddr) != 0)
+    {
+printk("%s %d\r\n",__FUNCTION__,__LINE__);
+	    ASFIPSEC_WARN("secfp_set_secpath failed");
+	    ASFSkbFree(skb);
+	    return;
+    }
+#endif
+#else
 	/* Look at the Next protocol field */
 	ulTempLen = ulBeforeTrimLen = skb_headlen(skb);
 	if (secfp_inCompleteCheckAndTrimPkt(skb, skb, &ulTempLen,
@@ -3536,6 +3584,12 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 		ASFSkbFree(skb);
 		return;
 	}
+#endif
+
+/*printk("VSG ID %d SPI  %lx   hash %d\r\n",
+              *(unsigned int *)&(skb->cb[SECFP_VSG_ID_INDEX]),
+              *(unsigned int *)&(skb->cb[SECFP_SPI_INDEX]),
+              *(unsigned int *)&(skb->cb[SECFP_HASH_VALUE_INDEX]));*/
 	iRetVal = secfp_inCompleteSAProcess(&skb, &IPSecOpque,
 		SECFP_PROTO_ESP, &ulCommonInterfaceId, ulBeforeTrimLen);
 	ASFIPSEC_DEBUG("\nUL Common IFACE ID is %d\n",
@@ -3543,6 +3597,7 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	if (iRetVal == 1) {
 		ASFIPSEC_WARN("secfp_inCompleteSAProcess failed");
 		ASFSkbFree(skb);
+printk("%s:%d selector verification failed\n",__FUNCTION__,__LINE__);
 		return;
 	} else if (iRetVal == 2) {
 		ASFIPSEC_DEBUG("Absorbed by frag process");
@@ -3553,27 +3608,29 @@ void secfp_inComplete(struct device *dev, u32 *pdesc,
 	/* Assuming ethernet as the receiving device of original packet */
 	if (ucNextProto == SECFP_PROTO_IP) {
 		secfp_inCompleteUpdateIpv4Pkt(skb);
-		skb->protocol = ETH_P_IP;
+		//skb->protocol = ETH_P_IP;
 
 		ASFIPSEC_FPRINT("decrypt skb %p len %d frag %p\n",
 			skb->head, skb->len,
 			skb_shinfo(skb)->frag_list);
-		ASFIPSEC_HEXDUMP(skb->data, skb->len);
 		/* Homogenous buffer */
 		Buffer.nativeBuffer = skb;
 #ifdef ASF_TERM_FP_SUPPORT
-		if (skb->mapped && pTermProcessPkt)
+		if (skb->mapped && pTermProcessPkt) {
 			pTermProcessPkt(
 			*(unsigned int *)&(skb->cb[SECFP_VSG_ID_INDEX]),
 			ulCommonInterfaceId, Buffer, secfp_SkbFree,
 			skb, &IPSecOpque, ASF_FALSE);
-		else
+		} else
 #endif
+		{
+/*printk("decrypt skb data %p len %d frag %p\n", skb->data, skb->len, skb_shinfo(skb)->frag_list);
+ASFIPSEC_HEXDUMP(skb->data, skb->len);*/
 			ASFFFPProcessAndSendPkt(
 			*(unsigned int *)&(skb->cb[SECFP_VSG_ID_INDEX]),
 			ulCommonInterfaceId, Buffer, secfp_SkbFree,
 			skb, &IPSecOpque);
-
+		}
 		pIPSecPPGlobalStats->ulTotInProcPkts++;
 #ifdef ASF_IPV6_FP_SUPPORT
 	} else if (ucNextProto == SECFP_PROTO_IPV6) {
@@ -4709,8 +4766,7 @@ static inline int secfp_try_fastPathInv4(struct sk_buff *skb1,
 		return 1; /* Send it up to Stack */
 #endif /* (ASF_FEATURE_OPTION > ASF_MINIMUM) */
 	}
-	ASFIPSEC_FPRINT("Pkt received skb->len = %d", skb1->len);
-	ASFIPSEC_HEXDUMP(skb1->data - 14, skb1->len);
+	ASFIPSEC_FPRINT("Pkt received skb->len = %d %d \r\n", skb1->len,__LINE__);
 
 	rcu_read_lock();
 	SECFP_EXTRACT_PKTINFO(skb1, iph, (iph->ihl*4), ulSPI, ulSeqNum)
@@ -4952,8 +5008,8 @@ So all these special boundary cases need to be handled for nr_frags*/
 			if (pSA->SAParams.bDoAntiReplayCheck) {
 				if (pSA->SAParams.bUseExtendedSequenceNumber) {
 					pHeadSkb->cb[SECFP_LOOKUP_SA_INDEX] = 1; /* To do lookup Post SEC */
-					pESNLoc = (unsigned int *)(pTailSkb->tail);
-					secfp_appendESN(pSA, ulSeqNum, &ulLowerBoundSeqNum, (unsigned int *)pESNLoc);
+					pESNLoc = (unsigned int *)skb_tail_pointer(pTailSkb);
+					secfp_appendESN(pSA, ulSeqNum, &ulLowerBoundSeqNum, pESNLoc);
 					*(unsigned int *)&(pHeadSkb->cb[SECFP_SEQNUM_INDEX]) = ulSeqNum;
 					secfp_checkSeqNum(pSA, ulSeqNum,
 							ulLowerBoundSeqNum, pHeadSkb);
@@ -4972,7 +5028,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 		/* Pass the skb data pointer */
 		*(uintptr_t *)&(pHeadSkb->cb[SECFP_IPHDR_INDEX]) = (uintptr_t)(&(pHeadSkb->data[0]));
 		*(unsigned int *)&(pHeadSkb->cb[SECFP_HASH_VALUE_INDEX]) = ulHashVal;
-
+		*(unsigned int *)&(pHeadSkb->cb[SECFP_GW_IP_INDEX]) = iph->daddr;
 		ASFIPSEC_DBGL2("In Packet ulSPI=%d, ipaddr_ptr=0x%x,"
 			" ulHashVal= %d, Saved values: ulSPI=%d,"
 			" ipaddr_ptr=0x%x, ulHashVal=%d",
@@ -5009,7 +5065,9 @@ So all these special boundary cases need to be handled for nr_frags*/
 		pHeadSkb->cb[SECFP_REF_INDEX] = 2;
 
 #ifndef ASF_QMAN_IPSEC
-#ifndef CONFIG_VIRTIO
+#ifdef CONFIG_VIRTIO
+		pHeadSkb->cb[SECFP_REF_INDEX] = 1;
+#else
 		desc = secfp_desc_alloc();
 		if (!desc) {
 			ASF_IPSEC_PPS_ATOMIC_INC(IPSec4GblPPStats_g.IPSec4GblPPStat[ASF_IPSEC_PP_GBL_CNT26]);
@@ -5035,7 +5093,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 		/* Trim the length accordingly */
 		/* Since we will be giving packet to fwnat processing,
 		keep the data pointer as 14 bytes before data start */
-		ASFIPSEC_DEBUG("In: Offseting data by ulSecHdrLen = %d",
+		ASFIPSEC_DEBUG("In: %d Offseting data by ulSecHdrLen = %d ",__LINE__,
 					pSA->ulSecHdrLen);
 
 #ifndef ASF_SECFP_PROTO_OFFLOAD
@@ -5051,9 +5109,9 @@ So all these special boundary cases need to be handled for nr_frags*/
 #else
 		/* updating the length and data pointer of packet according
 		   to the packet after decryption */
-		pHeadSkb->data += ulSecLen;
-		pHeadSkb->len -= ulSecLen;
-		pTailSkb->len += ulFragpadlen;
+	//	pHeadSkb->data += ulSecLen; Niraj
+	//	pHeadSkb->len -= ulSecLen;
+	//	pTailSkb->len += ulFragpadlen;
 #endif /*ASF_SECFP_PROTO_OFFLOAD*/
 #endif /*ASF_QMAN_IPSEC*/
 
@@ -5081,7 +5139,7 @@ So all these special boundary cases need to be handled for nr_frags*/
 						bExpiry = ASF_TRUE;
 
 					ASFIPSEC_WARN(
-					"SA Expired KB=%u (hard=%d) SPI=0x%x",
+					"SA Expired KB=%lu (hard=%d) SPI=0x%x",
 					ulKBytes, bHard, pSA->SAParams.ulSPI);
 				}
 			}
@@ -5117,6 +5175,7 @@ sa_expired:
 			}
 		}
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
+
 		pIPSecPPGlobalStats->ulTotInRecvSecPkts++;
 //#ifndef CONFIG_ASF_SEC4x
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
@@ -5127,7 +5186,6 @@ sa_expired:
 			(void *)pHeadSkb) == -EAGAIN)
 #elif defined(ASF_QMAN_IPSEC)
 		if (secfp_qman_in_submit(pSA, pHeadSkb))
-
 #elif defined(CONFIG_VIRTIO)
 		if (secfp_vio_decap(pSA,pHeadSkb, 
 						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
@@ -5159,12 +5217,9 @@ sa_expired:
 
 		/* length of skb memory to unmap upon completion */
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
-//#ifndef CONFIG_ASF_SEC4x
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		if (pSA->option[1] != SECFP_NONE) {
 			pHeadSkb->cb[SECFP_REF_INDEX]++;
-
-#ifndef CONFIG_VIRTIO
 			desc = secfp_desc_alloc();
 
 			if (!desc) {
@@ -5192,14 +5247,7 @@ sa_expired:
 			if (talitos_submit(pdev, pSA->chan, desc,
 				(secin_sg_flag & SECFP_SCATTER_GATHER)
 				? pSA->inCompleteWithFrags : pSA->inComplete,
-				(void *)pHeadSkb) == -EAGAIN)
-#else
-			if (secfp_vio_decap(pSA,pHeadSkb, 
-						(secin_sg_flag & SECFP_SCATTER_GATHER) ?
-					pSA->inCompleteWithFrags : pSA->inComplete,
-					(void *)pHeadSkb)
-#endif
-				{
+				(void *)pHeadSkb) == -EAGAIN) {
 				ASFIPSEC_WARN("Inbound Submission to SEC failed");
 
 				/* Mark SKB action index to drop */
@@ -5416,6 +5464,7 @@ ASF_void_t ASFIPSecEncryptAndSendPkt(ASF_uint32_t ulVsgId,
 #endif
 	int bVal = in_interrupt();
 
+	//printk("%s local out spi 0x%x\n", __func__, ulSPI);
 	if (!bVal)
 		local_bh_disable();
 
@@ -5427,6 +5476,7 @@ ASF_void_t ASFIPSecEncryptAndSendPkt(ASF_uint32_t ulVsgId,
 			(pFreeFn)(freeArg);
 		if (!bVal)
 			local_bh_enable();
+		ASFIPSEC_ERR("container not found\n");
 		return;
 	}
 
@@ -5436,7 +5486,7 @@ ASF_void_t ASFIPSecEncryptAndSendPkt(ASF_uint32_t ulVsgId,
 		pOutSALinkNode = secfp_findOutSALinkNode(pOutContainer,
 				daddr, ucProtocol, ulSPI);
 		if (!pOutSALinkNode) {
-			ASFIPSEC_PRINT("SA not found");
+			ASFIPSEC_ERR("SA not found\n");
 			if (pFreeFn)
 				(pFreeFn)(freeArg);
 			if (!bVal)
@@ -5470,6 +5520,7 @@ ASF_void_t ASFIPSecEncryptAndSendPkt(ASF_uint32_t ulVsgId,
 			(pFreeFn)(freeArg);
 		goto ret_stk;
 	}
+
 	if (skb_shinfo(skb)->frag_list)
 		skb->len = skb_headlen(skb);
 	if (secfp_try_fastPathOut(ulVsgId, skb, &SecInfo) != 0) {
@@ -5670,8 +5721,6 @@ static int ASFIPSec4SendIcmpErrMsg (unsigned char *pOrgData,
 			rcu_read_unlock();
 		} else
 			ASFKernelSkbFree(pSkb);
-
-
 	}
 	return 0;
 }
@@ -5721,7 +5770,6 @@ unsigned short ASFascksum(unsigned short *pusData, unsigned short usLen)
 	unsigned int sum = 0;
 	unsigned short csum1, csum2;
 	char *pSum;
-
 	for (; usLen; usLen--)
 		sum += *pusData++;
 

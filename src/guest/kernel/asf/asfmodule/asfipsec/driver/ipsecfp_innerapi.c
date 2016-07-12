@@ -265,7 +265,7 @@ unsigned int asfsecfpBlobTmrCb(unsigned int ulVSGId,
 		ASFIPSEC_WARN("SA not available index = %d", ulIndex);
 		return 1;
 	}
-	ASFIPSEC_DEBUG("SEC L2blob Timer pSA = %x, SPI=0x%x",
+	ASFIPSEC_DEBUG("SEC L2blob Timer pSA = %p, SPI=0x%x",
 				pSA, pSA->SAParams.ulSPI);
 
 	ASFIPSEC_DEBUG("SEC L2blob Magic(index=%d) %d = %d ", ulIndex,
@@ -667,6 +667,7 @@ static void secfp_addOutSelSet(outSA_t *pSA,
 	pSA->pSelList->ucSelFlags = ucSelFlags;
 	pSA->pSelList->usDscpStart = usDscpStart;
 	pSA->pSelList->usDscpEnd = usDscpEnd;
+	ASFIPSEC_SA("SA %p flags 0x%x\n", pSA, ucSelFlags);
 
 	/* Allocate and copy the source selector list */
 	for (pPrevSel = NULL, pTmpSel = pSrcSel;
@@ -684,6 +685,10 @@ static void secfp_addOutSelSet(outSA_t *pSA,
 		}
 		if (pNewSel) {
 			for (ii = 0; ii < pTmpSel->ucNumSelectors; ii++) {
+				struct selNode_s *pSelNode = &pTmpSel->selNodes[ii];
+				ASFIPSEC_SA("  src: index:%d ip:"NIPQUAD_FMT"-"NIPQUAD_FMT" port:%d-%d proto:%d\n",
+					ii, NIPQUAD(pSelNode->ipAddrRange.v4.start), NIPQUAD(pSelNode->ipAddrRange.v4.end),
+					ntohs(pSelNode->prtStart), 	ntohs(pSelNode->prtEnd), pSelNode->proto);
 				memcpy(&(pNewSel->selNodes[ii]),
 					&(pTmpSel->selNodes[ii]),
 					sizeof(struct selNode_s));
@@ -719,6 +724,10 @@ static void secfp_addOutSelSet(outSA_t *pSA,
 		}
 		if (pNewSel) {
 			for (ii = 0; ii < pTmpSel->ucNumSelectors; ii++) {
+				struct selNode_s *pSelNode = &pTmpSel->selNodes[ii];
+				ASFIPSEC_SA("dest: index:%d ip:"NIPQUAD_FMT"-"NIPQUAD_FMT" port:%d-%d proto:%d\n",
+					ii, NIPQUAD(pSelNode->ipAddrRange.v4.start), NIPQUAD(pSelNode->ipAddrRange.v4.end),
+					ntohs(pSelNode->prtStart), 	ntohs(pSelNode->prtEnd), pSelNode->proto);
 				memcpy(&(pNewSel->selNodes[ii]),
 					&(pTmpSel->selNodes[ii]),
 					sizeof(struct selNode_s));
@@ -1127,7 +1136,6 @@ static inline void secfp_appendInSAToSPIList(inSA_t *pSA)
 	inSA_t *pTempSA;
 
 	pSA->ulHashVal = hashVal;
-
 	spin_lock_bh(&secFP_InSATableLock);
 	if (secFP_SPIHashTable[hashVal].pHeadSA) {
 		pTempSA = pSA->pNext = secFP_SPIHashTable[hashVal].pHeadSA;
@@ -1257,6 +1265,8 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 #endif
 	sport = *ptrhdrOffset;
 	dport = *(ptrhdrOffset+1);
+	ASFIPSEC_PKT("looking up "NIPQUAD_FMT":%d ==ipproto %d=> "NIPQUAD_FMT":%d\n",
+		NIPQUAD(iph->saddr), ntohs(sport), protocol, NIPQUAD(iph->daddr), ntohs(dport));
 
 	for (pSALinkNode = pContainer->SAHolder.pSAList;
 		pSALinkNode != NULL; pSALinkNode = pSALinkNode->pNext) {
@@ -1264,12 +1274,16 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 					pSALinkNode->ulSAIndex);
 		if ((pSA) && (pSA->pSelList)) {
 			ucMatchSrcSelFlag = ucMatchDstSelFlag = 0;
+			ASFIPSEC_PKT("  trying outSA %p flags 0x%x\n", pSA, pSA->pSelList->ucSelFlags);
 
 			for (pSel = &(pSA->pSelList->srcSel);
 				pSel != NULL; pSel = pSel->pNext) {
 				for (ii = 0; ii < pSel->ucNumSelectors; ii++) {
 					pSelNode = &(pSel->selNodes[ii]);
 					ucMatchSrcSelFlag = 0;
+				ASFIPSEC_PKT("    src ip:"IPQUAD_FMT"-"IPQUAD_FMT" port %d-%d proto %d\n",
+					HIPQUAD(pSelNode->ipAddrRange.v4.start), HIPQUAD(pSelNode->ipAddrRange.v4.end),
+					pSelNode->prtStart, pSelNode->prtEnd, pSelNode->proto);
 
 					if (pSA->pSelList->ucSelFlags & SECFP_SA_XPORT_SELECTOR) {
 						if (protocol == pSelNode->proto)
@@ -1278,8 +1292,8 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 							continue;
 					}
 					if (pSA->pSelList->ucSelFlags & SECFP_SA_SRCPORT_SELECTOR) {
-						if ((sport >= pSelNode->prtStart) &&
-							(sport <= pSelNode->prtEnd)) {
+						if ((ntohs(sport) >= pSelNode->prtStart) &&
+							(ntohs(sport) <= pSelNode->prtEnd)) {
 							ucMatchSrcSelFlag |= SECFP_SA_SRCPORT_SELECTOR;
 						} else
 							continue;
@@ -1289,8 +1303,8 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 						if (pSelNode->IP_Version == 4) {
 #endif
 							if (iph->version == 4 &&
-								(iph->saddr >= pSelNode->ipAddrRange.v4.start) &&
-								(iph->saddr <= pSelNode->ipAddrRange.v4.end)) {
+								(ntohl(iph->saddr) >= pSelNode->ipAddrRange.v4.start) &&
+								(ntohl(iph->saddr) <= pSelNode->ipAddrRange.v4.end)) {
 							ucMatchSrcSelFlag |= SECFP_SA_SRCIPADDR_SELECTOR;
 						} else
 							continue;
@@ -1319,6 +1333,9 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 				for (ii = 0; ii < pSel->ucNumSelectors; ii++) {
 					pSelNode = &(pSel->selNodes[ii]);
 					ucMatchDstSelFlag = 0;
+					ASFIPSEC_PKT("    dest ip:"NIPQUAD_FMT"-"NIPQUAD_FMT" port %d-%d proto %d\n",
+						HIPQUAD(pSelNode->ipAddrRange.v4.start), HIPQUAD(pSelNode->ipAddrRange.v4.end),
+						pSelNode->prtStart, pSelNode->prtEnd, pSelNode->proto);
 
 					if (pSA->pSelList->ucSelFlags & SECFP_SA_XPORT_SELECTOR) {
 						if (protocol == pSelNode->proto)
@@ -1327,8 +1344,8 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 							continue;
 					}
 					if (pSA->pSelList->ucSelFlags & SECFP_SA_DESTPORT_SELECTOR) {
-						if ((dport >= pSelNode->prtStart) &&
-							(dport <= pSelNode->prtEnd)) {
+						if ((ntohs(dport) >= pSelNode->prtStart) &&
+							(ntohs(dport) <= pSelNode->prtEnd)) {
 							ucMatchDstSelFlag |= SECFP_SA_DESTPORT_SELECTOR;
 						} else
 							continue;
@@ -1338,8 +1355,8 @@ SPDOutSALinkNode_t *secfp_cmpPktSelWithSelSet(
 						if (pSelNode->IP_Version == 4) {
 #endif
 							if (iph->version == 4 &&
-								(iph->daddr >= pSelNode->ipAddrRange.v4.start) &&
-								(iph->daddr <= pSelNode->ipAddrRange.v4.end)) {
+								(ntohl(iph->daddr) >= pSelNode->ipAddrRange.v4.start) &&
+								(ntohl(iph->daddr) <= pSelNode->ipAddrRange.v4.end)) {
 								ucMatchDstSelFlag |= SECFP_SA_DESTIPADDR_SELECTOR;
 							} else
 								continue;
@@ -1395,12 +1412,18 @@ inSA_t *secfp_findInv4SA(unsigned int ulVSGId,
 
 	for (pSA = secFP_SPIHashTable[*pHashVal].pHeadSA;
 		pSA != NULL; pSA = pSA->pNext) {
+             /*printk(" ==> matching SA with SPI 0x%x ucProto %d daddr 0x%x ulVSGId %d\n",
+                pSA->SAParams.ulSPI,pSA->SAParams.ucProtocol,
+                pSA->SAParams.tunnelInfo.addr.iphv4.daddr,pSA->ulVSGId);*/
 		if ((ulSPI == pSA->SAParams.ulSPI)
 			&& (ucProto == pSA->SAParams.ucProtocol)
 			&& (daddr == pSA->SAParams.tunnelInfo.addr.iphv4.daddr)
 			&& (ulVSGId == pSA->ulVSGId))
 			break;
 	}
+if (!pSA)
+	printk("%s hashVal %d SPI 0x%x ucProto %d daddr 0x%x vsg %d matched SA %p\n",
+			__func__, *pHashVal, ulSPI, ucProto, daddr, ulVSGId, pSA);
 	return pSA;
 }
 
@@ -1482,12 +1505,11 @@ outSA_t *secfp_findOutSA(
 			pulVSGMagicNumber[ulVsgId]) ||
 			(pSecInfo->outContainerInfo.configIdentity.ulTunnelConfigMagicNumber !=
 			secFP_TunnelIfaces[ulVsgId][pSecInfo->outContainerInfo.ulTunnelId].ulTunnelMagicNumber)) {
-			ASFIPSEC_DEBUG("VSG:%d=%d, tunnel:%d=%d",
-			pSecInfo->outContainerInfo.configIdentity.ulVSGConfigMagicNumber,
-			pulVSGMagicNumber[ulVsgId],
-			pSecInfo->outContainerInfo.configIdentity.ulTunnelConfigMagicNumber,
-			secFP_TunnelIfaces[ulVsgId][pSecInfo->outContainerInfo.ulTunnelId].ulTunnelMagicNumber);
-
+			ASFIPSEC_SA("VSG:%d=%d, tunnel:%d=%d\n",
+				pSecInfo->outContainerInfo.configIdentity.ulVSGConfigMagicNumber,
+				pulVSGMagicNumber[ulVsgId],
+				pSecInfo->outContainerInfo.configIdentity.ulTunnelConfigMagicNumber,
+				secFP_TunnelIfaces[ulVsgId][pSecInfo->outContainerInfo.ulTunnelId].ulTunnelMagicNumber);
 			*ppContainer = NULL;
 			*pbRevalidate = ASF_TRUE;
 			return NULL;
@@ -1495,18 +1517,18 @@ outSA_t *secfp_findOutSA(
 		pSecInfo->outContainerInfo.ulTimeStamp = ulTimeStamp_g;
 	}
 #endif /*(ASF_FEATURE_OPTION > ASF_MINIMUM)*/
+
 	*ppContainer = pContainer = (SPDOutContainer_t *)
 		ptrIArray_getData(&(secfp_OutDB),
 			pSecInfo->outContainerInfo.ulSPDContainerId);
-
-	ASFIPSEC_DEBUG("Valid Container found pContainer = 0x%x",
-			(unsigned int) pContainer);
+	ASFIPSEC_DEBUG("Valid Container found pContainer = 0x%p", pContainer);
 #if (ASF_FEATURE_OPTION > ASF_MINIMUM)
 	/* Check the container magic value */
-	if (ptrIArray_getMagicNum(&(secfp_OutDB),
-				pSecInfo->outContainerInfo.ulSPDContainerId) !=
+	if (ptrIArray_getMagicNum(&secfp_OutDB, pSecInfo->outContainerInfo.ulSPDContainerId) !=
 		pSecInfo->outContainerInfo.ulSPDMagicNumber) {
-		ASFIPSEC_WARN("SPD - Magic Number mismatch ");
+		ASFIPSEC_SA("SPD Magic Number mismatch db:%d secinfo:%d\n",
+			ptrIArray_getMagicNum(&secfp_OutDB, pSecInfo->outContainerInfo.ulSPDContainerId),
+			pSecInfo->outContainerInfo.ulSPDMagicNumber);
 		/* Send packet to control plane : SPD pointer Not Available */
 		return NULL;
 	}
@@ -1515,51 +1537,42 @@ outSA_t *secfp_findOutSA(
 	ASFIPSEC_DEBUG("SA within Container : Container Matched SA=%d ",
 		pSecInfo->outSAInfo.ulSAIndex);
 	if ((pSecInfo->outSAInfo.ulSAIndex == ulMaxSupportedIPSecSAs_g) ||
-		(ptrIArray_getMagicNum(&secFP_OutSATable,
-			pSecInfo->outSAInfo.ulSAIndex)
-		!= pSecInfo->outSAInfo.ulSAMagicNumber)) {
+		(ptrIArray_getMagicNum(&secFP_OutSATable, 	pSecInfo->outSAInfo.ulSAIndex)
+			!= pSecInfo->outSAInfo.ulSAMagicNumber)) {
 		/* Either we don't have the SA or our magic nums are different*/
 		if (pContainer->SPDParams.bOnlySaPerDSCP) {
-			if (pContainer->SAHolder.ulSAIndex[tos] !=
-					ulMaxSupportedIPSecSAs_g) {
-				/* We don't have the SA yet,
-				Get it from global table */
-				pSecInfo->outSAInfo.ulSAIndex =
-					pContainer->SAHolder.ulSAIndex[tos];
-
+			if (pContainer->SAHolder.ulSAIndex[tos] != 	ulMaxSupportedIPSecSAs_g) {
+				/* We don't have the SA yet,  Get it from global table */
+				pSecInfo->outSAInfo.ulSAIndex = pContainer->SAHolder.ulSAIndex[tos];
 				ASFIPSEC_DEBUG("Found SA ");
 			} else {
-				ASFIPSEC_DEBUG("Matching DSCP Based SA"\
-					"could not be found");
+				ASFIPSEC_SA("SA magic mismatch db:%d secinfo:%d\n",
+					ptrIArray_getMagicNum(&secFP_OutSATable, pSecInfo->outSAInfo.ulSAIndex),
+					pSecInfo->outSAInfo.ulSAMagicNumber);
 				return NULL;
-
 			}
 		} else {
 			/* Handle SA Selector case */
-			pOutSALinkNode = secfp_cmpPktSelWithSelSet(pContainer,
-							skb);
+			pOutSALinkNode = secfp_cmpPktSelWithSelSet(pContainer, skb);
 			if (!pOutSALinkNode) {
-				ASFIPSEC_DEBUG("Matching SelSet SA Notfound");
-				ASFIPSEC_DEBUG("Send packet to CP ");
+				ASFIPSEC_SA("no matching SelSet for SPD %d:%d SA %d:%d\n",
+					pSecInfo->outContainerInfo.ulSPDContainerId,
+					pSecInfo->outContainerInfo.ulSPDMagicNumber,
+					pSecInfo->outSAInfo.ulSAIndex, pSecInfo->outSAInfo.ulSAMagicNumber);
 				return NULL;
 			}
-			ASFIPSEC_DEBUG("Got the SA = %d",
-				pOutSALinkNode->ulSAIndex);
+			ASFIPSEC_DEBUG("Got the SA = %d\n", pOutSALinkNode->ulSAIndex);
 			/* We don't have the SA yet, Get it from global table */
-			pSecInfo->outSAInfo.ulSAIndex =
-					pOutSALinkNode->ulSAIndex;
+			pSecInfo->outSAInfo.ulSAIndex = pOutSALinkNode->ulSAIndex;
 		}
 
 		/* Now update our magic number from Global table */
 		pSecInfo->outSAInfo.ulSAMagicNumber =
-		ptrIArray_getMagicNum(&secFP_OutSATable,
-				pSecInfo->outSAInfo.ulSAIndex);
+			ptrIArray_getMagicNum(&secFP_OutSATable, pSecInfo->outSAInfo.ulSAIndex);
 	}
 
 	/* If we reached here, we have the SA in our cache */
-	pSA = (outSA_t *) ptrIArray_getData(&secFP_OutSATable,
-				pSecInfo->outSAInfo.ulSAIndex);
-
+	pSA = (outSA_t *)ptrIArray_getData(&secFP_OutSATable, pSecInfo->outSAInfo.ulSAIndex);
 	ASFIPSEC_FEXIT;
 	return pSA;
 }
@@ -1787,6 +1800,76 @@ static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 static inline int secfp_updateInSA(inSA_t *pSA, SAParams_t *pSAParams)
 {
 	memcpy(&pSA->SAParams, pSAParams, sizeof(SAParams_t));
+	printk("*******CHANGE *****%s %d protocol %d  \r\n", __FUNCTION__, __LINE__, pSA->SAParams.ucProtocol);
+#if 0
+	if (pSA->SAParams.bAuth) {
+			switch (pSA->SAParams.ucAuthAlgo) {
+			case SECFP_HMAC_MD5:
+				pSA->hdr_Auth_template_1 = DESC_HDR_SEL1_MDEUA|
+						DESC_HDR_MODE1_MDEU_INIT |
+						DESC_HDR_MODE1_MDEU_PAD |
+						DESC_HDR_MODE1_MDEU_MD5_HMAC;
+				pSA->hdr_Auth_template_0 = DESC_HDR_SEL0_MDEUA|
+						DESC_HDR_MODE0_MDEU_INIT |
+						DESC_HDR_MODE0_MDEU_PAD |
+						DESC_HDR_MODE0_MDEU_MD5_HMAC;
+				break;
+			case SECFP_HMAC_SHA1:
+				pSA->hdr_Auth_template_1 |=
+				DESC_HDR_SEL1_MDEUA |
+				DESC_HDR_MODE1_MDEU_INIT |
+				DESC_HDR_MODE1_MDEU_PAD |
+				DESC_HDR_MODE1_MDEU_SHA1_HMAC;
+
+				pSA->hdr_Auth_template_0 |=
+				DESC_HDR_SEL0_MDEUA |
+				DESC_HDR_MODE0_MDEU_INIT |
+				DESC_HDR_MODE0_MDEU_PAD |
+				DESC_HDR_MODE0_MDEU_SHA1_HMAC;
+				break;
+			case SECFP_HMAC_AES_XCBC_MAC:
+				pSA->hdr_Auth_template_0 |=
+				DESC_HDR_SEL0_AESU |
+				DESC_HDR_MODE0_AES_XCBC_MAC;
+				break;
+			default:
+				ASFIPSEC_DEBUG("Invalid ucAuthAlgo");
+				return -1;
+		}
+	}
+
+	if (pSA->SAParams.bEncrypt) {
+			switch (pSA->SAParams.ucCipherAlgo) {
+			case SECFP_DES:
+				pSA->desc_hdr_template |=
+				DESC_HDR_SEL0_DEU |
+				DESC_HDR_MODE0_DEU_CBC;
+				break;
+			case SECFP_3DES:
+				pSA->desc_hdr_template |=
+				DESC_HDR_SEL0_DEU |
+				DESC_HDR_MODE0_DEU_CBC|
+				DESC_HDR_MODE0_DEU_3DES;
+				break;
+
+			case SECFP_AES:
+				pSA->desc_hdr_template |=
+				DESC_HDR_SEL0_AESU |
+				DESC_HDR_MODE0_AESU_CBC;
+				break;
+			case SECFP_AESCTR:
+				pSA->desc_hdr_template |=
+				DESC_HDR_SEL0_AESU;
+				break;
+			case SECFP_ESP_NULL:
+				ASFIPSEC_DEBUG("NULL Encryption set");
+				break;
+			default:
+				ASFIPSEC_WARN("Invalid ucEncryptAlgo");
+				return -1;
+		}
+	}
+#endif
 	return 0;
 }
 #endif
@@ -2543,7 +2626,7 @@ unsigned int secfp_createOutSA(
 
 	if (!bVal)
 		local_bh_disable();
-
+	printk(" SPI Index 0x%x 0x%x 0x%x \r\n",SAParams->ulSPI,htonl(SAParams->ulSPI),ntohl(SAParams->ulSPI));
 	daddr.bIPv4OrIPv6 = SAParams->tunnelInfo.bIPv4OrIPv6;
 	if (SAParams->tunnelInfo.bIPv4OrIPv6)
 		memcpy(daddr.ipv6addr,
@@ -2772,12 +2855,13 @@ unsigned int secfp_createOutSA(
 #elif !defined(CONFIG_VIRTIO)
 	secfp_createOutSATalitosDesc(pSA);
 #endif
+
 #ifndef ASF_QMAN_IPSEC
 			//pSA->prepareOutDescriptor = secfp_prepareOutDescriptor;
 #if defined(CONFIG_ASF_SEC3x)
 			pSA->prepareOutDescriptorWithFrags = secfp_prepareOutDescriptorWithFrags;
 #else
-			pSA->prepareOutDescriptorWithFrags = secfp_prepareOutDescriptor;
+			//pSA->prepareOutDescriptorWithFrags = secfp_prepareOutDescriptor;
 #endif
 #endif
 #ifndef ASF_SECFP_PROTO_OFFLOAD
@@ -2785,7 +2869,9 @@ unsigned int secfp_createOutSA(
 #else
 			pSA->ulXmitHdrLen = 0;
 #endif
+
 	} else {
+
 #ifdef CONFIG_ASF_SEC4x
 		/* AH Handling */
 
@@ -2880,6 +2966,11 @@ unsigned int secfp_createOutSA(
 			pSA->SAParams.tunnelInfo.addr.iphv6.saddr, 16);
 	}
 #endif
+	if (ASFIPSecCbFn.pFnRefreshL2Blob_First) //Niraj_test
+		ASFIPSecCbFn.pFnRefreshL2Blob_First(ulVSGId, ulTunnelId,
+			ulSPDContainerIndex, ulMagicNumber, &TunAddress,
+			pSA->SAParams.ulSPI, pSA->SAParams.ucProtocol);
+	printk("ulSPI Index is 0x%x\n",pSA->SAParams.ulSPI);
 	if (!bVal)
 		local_bh_enable();
 	if (ASFIPSecCbFn.pFnRefreshL2Blob)
@@ -3126,8 +3217,8 @@ unsigned int secfp_DeleteOutSA(unsigned int	ulSPDContainerIndex,
 			pContainer->SAHolder.ulSAIndex[ii] =
 					ulMaxSupportedIPSecSAs_g;
 	} else {
-		ASFIPSEC_DEBUG("Delete - dest %x, proto = %d spi= %x ",
-			daddr, ucProtocol, ulSPI);
+		ASFIPSEC_DEBUG("Delete - dest 0x%x, proto = %d spi= %x ",
+			daddr.ipv4addr, ucProtocol, ulSPI);
 
 		pOutSALinkNode = secfp_findOutSALinkNode(
 				pContainer, daddr, ucProtocol, ulSPI);
@@ -3308,7 +3399,7 @@ unsigned int secfp_CreateInSA(
 #if defined(CONFIG_ASF_SEC3x)
 			pSA->prepareInDescriptorWithFrags = secfp_prepareInDescriptorWithFrags;
 #else
-			pSA->prepareInDescriptorWithFrags = secfp_prepareInDescriptor;
+			//pSA->prepareInDescriptorWithFrags = secfp_prepareInDescriptor;
 #endif
 			pSA->inComplete = secfp_inComplete;
 			pSA->inCompleteWithFrags = secfp_inCompleteWithFrags;
@@ -3667,35 +3758,32 @@ unsigned int secfp_copySrcAndDestSelSet(
 		if (pNewSel->selNodes[jj].proto == 0)
 			ucSelFlags &= ~(SECFP_SA_XPORT_SELECTOR);
 
-		pNewSel->selNodes[jj].prtStart = pSASel->srcSel[ii].port.start;
-		pNewSel->selNodes[jj].prtEnd = pSASel->srcSel[ii].port.end;
+		pNewSel->selNodes[jj].prtStart = ntohs(pSASel->srcSel[ii].port.start);
+		pNewSel->selNodes[jj].prtEnd = ntohs(pSASel->srcSel[ii].port.end);
 		if (((pNewSel->selNodes[jj].prtStart == 0) &&
 			((pNewSel->selNodes[jj].prtEnd == 0) ||
-			(pNewSel->selNodes[jj].prtEnd == 0xffff)))) {
+			(pNewSel->selNodes[jj].prtEnd == 0xffff))))
 			ucSelFlags &= ~(SECFP_SA_SRCPORT_SELECTOR);
-		}
-
 
 		if (pSASel->srcSel[ii].IP_Version == 4) {
 			pNewSel->selNodes[jj].IP_Version = 4;
-			if (pSASel->srcSel[ii].addr.addrType ==
-						ASF_IPSEC_ADDR_TYPE_RANGE) {
+			if (pSASel->srcSel[ii].addr.addrType == ASF_IPSEC_ADDR_TYPE_RANGE) {
 				pNewSel->selNodes[jj].ipAddrRange.v4.start =
-				pSASel->srcSel[ii].addr.u.rangeAddr.v4.start;
+					ntohl(pSASel->srcSel[ii].addr.u.rangeAddr.v4.start);
 				pNewSel->selNodes[jj].ipAddrRange.v4.end =
-				pSASel->srcSel[ii].addr.u.rangeAddr.v4.end;
+					ntohl(pSASel->srcSel[ii].addr.u.rangeAddr.v4.end);
 				pNewSel->selNodes[jj].ucMask = 32;
 			} else {
 				pNewSel->selNodes[jj].ucMask =
-				pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Plen;
+					pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Plen;
 				pNewSel->selNodes[jj].ipAddrRange.v4.start =
-				ASF_IPSEC4_GET_START_ADDR(\
-					pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Addrs, \
-					pNewSel->selNodes[jj].ucMask);
+					ASF_IPSEC4_GET_START_ADDR(
+						ntohl(pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Addrs),
+						pNewSel->selNodes[jj].ucMask);
 				pNewSel->selNodes[jj].ipAddrRange.v4.end =
-				ASF_IPSEC4_GET_END_ADDR(\
-					pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Addrs, \
-					pNewSel->selNodes[jj].ucMask);
+					ASF_IPSEC4_GET_END_ADDR(
+						ntohl(pSASel->srcSel[ii].addr.u.prefixAddr.v4.IPv4Addrs),
+						pNewSel->selNodes[jj].ucMask);
 
 			}
 			if ((pNewSel->selNodes[jj].ipAddrRange.v4.start == 0) &&
@@ -3761,9 +3849,9 @@ unsigned int secfp_copySrcAndDestSelSet(
 			pPrevSel = pNewSel;
 			pNewSel = (struct SASel_s *)asfGetNode(SASelPoolId_g,
 								&bHeap);
-			if (pNewSel && bHeap) {
+			if (pNewSel && bHeap)
 				pNewSel->bHeap = bHeap;
-			}
+
 			if (pNewSel == NULL) {
 				GlobalErrors.ulResourceNotAvailable++;
 				ASFIPSEC_PRINT("Memory allocation failed"
@@ -3779,34 +3867,32 @@ unsigned int secfp_copySrcAndDestSelSet(
 		if (pNewSel->selNodes[jj].proto == 0)
 			ucSelFlags &= ~(SECFP_SA_XPORT_SELECTOR);
 
-		pNewSel->selNodes[jj].prtStart = pSASel->dstSel[ii].port.start;
-		pNewSel->selNodes[jj].prtEnd = pSASel->dstSel[ii].port.end;
+		pNewSel->selNodes[jj].prtStart = ntohs(pSASel->dstSel[ii].port.start);
+		pNewSel->selNodes[jj].prtEnd = ntohs(pSASel->dstSel[ii].port.end);
 		if ((pNewSel->selNodes[jj].prtStart == 0) &&
 			((pNewSel->selNodes[jj].prtEnd == 0) ||
 			(pNewSel->selNodes[jj].prtEnd == 0xffff)))
 			ucSelFlags &= ~(SECFP_SA_DESTPORT_SELECTOR);
 
-
 		if (pSASel->dstSel[ii].IP_Version == 4) {
 			pNewSel->selNodes[jj].IP_Version = 4;
-			if (pSASel->dstSel[ii].addr.addrType ==
-					ASF_IPSEC_ADDR_TYPE_RANGE) {
+			if (pSASel->dstSel[ii].addr.addrType == ASF_IPSEC_ADDR_TYPE_RANGE) {
 				pNewSel->selNodes[jj].ipAddrRange.v4.start =
-				pSASel->dstSel[ii].addr.u.rangeAddr.v4.start;
+					ntohl(pSASel->dstSel[ii].addr.u.rangeAddr.v4.start);
 				pNewSel->selNodes[jj].ipAddrRange.v4.end =
-				pSASel->dstSel[ii].addr.u.rangeAddr.v4.end;
+					ntohl(pSASel->dstSel[ii].addr.u.rangeAddr.v4.end);
 				pNewSel->selNodes[jj].ucMask = 32;
 			} else {
 				pNewSel->selNodes[jj].ucMask =
-				pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Plen;
+					pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Plen;
 				pNewSel->selNodes[jj].ipAddrRange.v4.start =
-				ASF_IPSEC4_GET_START_ADDR(\
-					pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Addrs, \
-					pNewSel->selNodes[jj].ucMask);
+					ASF_IPSEC4_GET_START_ADDR(
+						ntohl(pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Addrs),
+						pNewSel->selNodes[jj].ucMask);
 				pNewSel->selNodes[jj].ipAddrRange.v4.end =
-				ASF_IPSEC4_GET_END_ADDR(\
-					pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Addrs, \
-					pNewSel->selNodes[jj].ucMask);
+					ASF_IPSEC4_GET_END_ADDR(
+						ntohl(pSASel->dstSel[ii].addr.u.prefixAddr.v4.IPv4Addrs),
+						pNewSel->selNodes[jj].ucMask);
 
 			}
 			if ((pNewSel->selNodes[jj].ipAddrRange.v4.start == 0) &&
@@ -3824,7 +3910,7 @@ unsigned int secfp_copySrcAndDestSelSet(
 				pNewSel->selNodes[jj].ucMask = 128;
 			} else {
 				pNewSel->selNodes[jj].ucMask =
-				pSASel->dstSel[ii].addr.u.prefixAddr.v6.IPv6Plen;
+					pSASel->dstSel[ii].addr.u.prefixAddr.v6.IPv6Plen;
 				secfpv6_prefix_to_range(&pNewSel->selNodes[jj].ipAddrRange.v6,
 					&pSASel->dstSel[ii].addr.u.prefixAddr.v6.IPv6Addr,
 					pNewSel->selNodes[jj].ucMask);

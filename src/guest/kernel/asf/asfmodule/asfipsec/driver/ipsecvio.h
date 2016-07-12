@@ -24,12 +24,11 @@ int32_t secfp_deleteOutSAVIpsec(outSA_t *pSA);
 int32_t secfp_deleteInSAVIpsec(inSA_t *pSA);
 void secfp_encap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs);
 int32_t secfp_vio_encap(outSA_t *pSA, struct sk_buff *skb, void (*cbk)(struct device *dev, u32 *desc,
-				u32 status, void *areq), void *areq);
+				int32_t status, void *areq), void *areq);
 void secfp_decap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs);
 int32_t secfp_vio_decap(inSA_t *pSA,
 		struct sk_buff *skb,
-		void (*cbk)(struct device *dev, u32 *desc,
-			u32 status, void *areq),
+		void (*cbk)(struct device *dev, u32 *desc, int32_t status, void *areq),
 			void *areq);
 
 #define g_ipsec_la_avail_devices_get_num	virt_ipsec_avail_devices_get_num

@@ -417,6 +417,165 @@ ASF_void_t asfctrl_ipsec_fn_Config(ASF_uint32_t ulVSGId,
 		local_bh_enable();
 	return;
 }
+/* FUNCTION TO MANUPULATE L2BLOB INFORMATION AT TIME OF SA EXCHANGE
+ASF_void_t asfctrl_ipsec_fn_RefreshL2Blob_First(ASF_uint32_t ulVSGId,
+                                ASF_uint32_t ultunnelId,
+                                ASF_uint32_t ulOutSPDContainerIndex,
+                                ASF_uint8_t  ucProtocol) */
+ASF_void_t asfctrl_ipsec_fn_RefreshL2Blob_First(ASF_uint32_t ulVSGId,
+				ASF_uint32_t ultunnelId,
+				ASF_uint32_t ulOutSPDContainerIndex,
+				ASF_uint32_t ulOutSPDmagicNumber,
+				ASF_IPSecTunEndAddr_t *address,
+				ASF_uint32_t ulSPI,
+				ASF_uint8_t  ucProtocol)
+{
+	struct sk_buff *skb;
+	int bVal = in_softirq();
+	ASFCTRL_FUNC_TRACE;
+//	if (!bVal)
+//		local_bh_disable();
+	/* Generate Dummy packet */
+	skb = ASFCTRLKernelSkbAlloc(1024, GFP_ATOMIC);
+	if (skb) {
+		struct iphdr *iph;
+		ASF_uint32_t *pData;
+		ASFIPSecRuntimeModOutSAArgs_t *pSAData;
+		static unsigned short IPv4_IDs[NR_CPUS];
+		struct flowi fl = {};
+		printk("%s %d \r\n",__FUNCTION__,__LINE__);
+#ifdef ASF_IPV6_FP_SUPPORT
+		if (address->IP_Version == 4) {
+#endif
+			struct rtable *rt;
+		#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
+			fl.nl_u.ip4_u.daddr = address->dstIP.ipv4addr;
+			fl.nl_u.ip4_u.saddr = address->srcIP.ipv4addr;
+			fl.proto = IPPROTO_ICMP;
+
+			if (ip_route_output_key(&init_net, &rt, &fl))
+		#else
+			fl.u.ip4.daddr = address->dstIP.ipv4addr;
+			fl.u.ip4.saddr = address->srcIP.ipv4addr;
+			fl.u.flowi4_oif = 0;
+			fl.u.flowi4_flags = FLOWI_FLAG_ANYSRC;
+
+			rt = ip_route_output_key(&init_net, &fl.u.ip4);
+			if (IS_ERR(rt))
+		#endif
+			{
+				ASFCTRL_DBG("\n Route not found for dst %x\n",\
+							address->dstIP.ipv4addr);
+				printk("\n Route not found for dst %x\n",\
+							address->dstIP.ipv4addr);
+				ASFCTRLKernelSkbFree(skb);
+				goto out;
+			}
+
+		#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
+			skb_dst_set(skb, &(rt->u.dst));
+		#else
+			skb_dst_set(skb, &(rt->dst));
+		#endif
+			ASFCTRL_DBG("Route found for dst %x ",
+						address->dstIP.ipv4addr);
+			skb->dev = skb_dst(skb)->dev;
+			ASFCTRL_DBG("skb->devname: %s", skb->dev->name);
+			printk("skb->devname: %s", skb->dev->name);
+			skb_reserve(skb, LL_RESERVED_SPACE(skb->dev));
+			skb_reset_network_header(skb);
+			skb_put(skb, sizeof(struct iphdr));
+			iph = ip_hdr(skb);
+			iph->version = 5;
+			iph->ihl = 5;
+			iph->ttl = 1;
+			iph->id = IPv4_IDs[smp_processor_id()]++;
+			iph->tos = 0;
+			iph->frag_off = 0;
+			iph->saddr = (address->srcIP.ipv4addr);
+			iph->daddr = (address->dstIP.ipv4addr);
+			iph->protocol = ASFCTRL_IPPROTO_DUMMY_IPSEC_L2BLOB;
+			skb->protocol = htons(ETH_P_IP);
+#ifdef ASF_IPV6_FP_SUPPORT
+		} else if (address->IP_Version == 6) {
+			struct dst_entry *dst;
+			struct ipv6hdr *ipv6h;
+		#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
+			memcpy(fl.fl6_src.s6_addr32,
+					address->srcIP.ipv6addr, 16);
+			memcpy(fl.fl6_dst.s6_addr32,
+					address->dstIP.ipv6addr, 16);
+			fl.proto = IPPROTO_ICMPV6;
+			dst = ip6_route_output(&init_net, NULL, &fl);
+		#else
+			memcpy(fl.u.ip6.saddr.s6_addr,
+					address->srcIP.ipv6addr, 16);
+			memcpy(fl.u.ip6.daddr.s6_addr,
+					address->dstIP.ipv6addr, 16);
+			fl.u.__fl_common.flowic_proto = IPPROTO_ICMPV6;
+			dst = ip6_route_output(&init_net, NULL, &fl.u.ip6);
+		#endif
+			if (!dst || dst->error)	{
+				ASFCTRL_DBG("\n Route not found for dst %x"\
+						"skb->dst: 0x%x",
+						address->dstIP.ipv6addr,
+						skb_dst(skb));
+				ASFCTRLKernelSkbFree(skb);
+				goto out;
+			}
+
+			skb_dst_set(skb, dst);
+			ASFCTRL_DBG("Route found for dst %x ",
+					address->dstIP.ipv4addr);
+			skb->dev = skb_dst(skb)->dev;
+			ASFCTRL_DBG("devname is skb->devname: %s ",
+					skb->dev->name);
+			skb_reserve(skb, LL_RESERVED_SPACE(skb->dev));
+			skb_reset_network_header(skb);
+			skb_put(skb, sizeof(struct ipv6hdr));
+			ipv6h = ipv6_hdr(skb);
+
+			ipv6h->version = 5;
+			ipv6h->priority = 0;
+			ipv6h->payload_len =
+				(sizeof(ASFIPSecRuntimeModOutSAArgs_t));
+			memset(ipv6h->flow_lbl , 0, 3);
+			ipv6h->hop_limit = 1;
+			memcpy(ipv6h->saddr.s6_addr32,
+				address->srcIP.ipv6addr, 16);
+			memcpy(ipv6h->daddr.s6_addr32,
+				address->dstIP.ipv6addr, 16);
+
+			ipv6h->nexthdr = ASFCTRL_IPPROTO_DUMMY_IPSEC_L2BLOB;
+			skb->protocol = htons(ETH_P_IPV6);
+			skb_set_transport_header(skb, sizeof(struct ipv6hdr));
+			IP6CB(skb)->nhoff = offsetof(struct ipv6hdr, nexthdr);
+
+		}
+#endif
+		pData = (ASF_uint32_t *)skb_put(skb,
+				sizeof(ASF_uint32_t) +
+				sizeof(ASFIPSecRuntimeModOutSAArgs_t));
+		*pData++ = ulVSGId;
+		pSAData = (ASFIPSecRuntimeModOutSAArgs_t *)pData;
+		pSAData->ulTunnelId = ultunnelId;
+		memcpy(&pSAData->DestAddr,
+			&address->dstIP, sizeof(ASF_IPAddr_t));
+		pSAData->ulSPDContainerIndex =  ulOutSPDContainerIndex;
+		pSAData->ulSPDContainerMagicNumber = ulOutSPDmagicNumber;
+		pSAData->ucProtocol = ucProtocol;
+		pSAData->ulSPI = ulSPI;
+		pSAData->ucChangeType = 2;
+		pSAData->u.ulMtu  = skb->dev->mtu;
+		asfctrl_skb_mark_dummy(skb);
+		asf_ip_send(skb);
+		printk("RefreshL2Blob_First Success \r\n");
+	}
+out:
+//	if (!bVal)
+//		local_bh_enable();
+	return;
+}
 
 ASF_void_t asfctrl_ipsec_fn_RefreshL2Blob(ASF_uint32_t ulVSGId,
 				ASF_uint32_t ultunnelId,
@@ -448,7 +607,7 @@ ASF_void_t asfctrl_ipsec_fn_RefreshL2Blob(ASF_uint32_t ulVSGId,
 			fl.nl_u.ip4_u.saddr = address->srcIP.ipv4addr;
 			fl.proto = IPPROTO_ICMP;
 
-			if (ip_route_output_key(&init_net, &rt, &fl)) {
+			if (ip_route_output_key(&init_net, &rt, &fl))
 		#else
 			fl.u.ip4.daddr = address->dstIP.ipv4addr;
 			fl.u.ip4.saddr = address->srcIP.ipv4addr;
@@ -456,8 +615,9 @@ ASF_void_t asfctrl_ipsec_fn_RefreshL2Blob(ASF_uint32_t ulVSGId,
 			fl.u.flowi4_flags = FLOWI_FLAG_ANYSRC;
 
 			rt = ip_route_output_key(&init_net, &fl.u.ip4);
-			if (IS_ERR(rt)) {
+			if (IS_ERR(rt))
 		#endif
+			{
 				ASFCTRL_DBG("\n Route not found for dst %x\n",\
 							address->dstIP.ipv4addr);
 				ASFCTRLKernelSkbFree(skb);
@@ -722,10 +882,11 @@ ASF_void_t asfctrl_ipsec_l2blob_update_fn(struct sk_buff *skb,
 			pSAData->u.l2blob.ulL2BlobLen);
 #ifdef CONFIG_VLAN_8021Q
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
-		if (vlan_tx_tag_present(skb)) {
+		if (vlan_tx_tag_present(skb))
 #else
-		if (skb_vlan_tag_present(skb)) {
+		if (skb_vlan_tag_present(skb))
 #endif
+	{
 		pSAData->u.l2blob.bTxVlan = 1;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 		pSAData->u.l2blob.usTxVlanId = (vlan_tx_tag_get(skb)
@@ -899,6 +1060,7 @@ static int __init asfctrl_linux_ipsec_init(void)
 	Fnptr.pFnNoOutSA = asfctrl_ipsec_fn_NoOutSA;
 	Fnptr.pFnVerifySPD = asfctrl_ipsec_fn_VerifySPD;
 	Fnptr.pFnRefreshL2Blob = asfctrl_ipsec_fn_RefreshL2Blob;
+	Fnptr.pFnRefreshL2Blob_First = asfctrl_ipsec_fn_RefreshL2Blob_First;
 	Fnptr.pFnDPDAlive = asfctrl_ipsec_fn_DPDAlive;
 	Fnptr.pFnSeqNoOverFlow = asfctrl_ipsec_fn_SeqNoOverFlow;
 	Fnptr.pFnPeerChange = asfctrl_ipsec_fn_PeerGatewayChange;

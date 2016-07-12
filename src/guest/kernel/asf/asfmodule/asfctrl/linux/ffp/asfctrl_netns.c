@@ -82,9 +82,7 @@ void print_hash_bucket(ASF_uint32_t hashVal)
  */
 static int __net_init asf_net_init(struct net *net)
 {
-	printk("NAMESPACE_CREATE:Net Init called %p\n", net);
 	asfctrl_netns_vsg_create(net);
-	printk("asfctrl_linux_register_ffp_byname called\n");
 	asfctrl_linux_register_ffp_byname(net);
 	print_hash_bucket(0);
 	return 0;
@@ -174,7 +172,7 @@ ASF_int32_t asfctrl_netns_vsg_create(struct net *net)
 		if (netns_vsg[ii] == 0)
 			break;
 	}
-	if (ii > asf_max_vsgs)
+	if (ii >= asf_max_vsgs)
 	{
 		ASF_SPIN_UNLOCK(bLockFlag, &netns_vsg_lock);
 		printk("Should not happen: Index unavailable\n");
@@ -190,15 +188,14 @@ ASF_int32_t asfctrl_netns_vsg_create(struct net *net)
 
 	netns_vsg[ii]->ulVSGId =  ii;
 	
-	printk("netns added %p\n", netns_vsg[ii]);
+	printk("netns added %p index %d\n", netns_vsg[ii], ii);
 
 	/* to hold and keep it
 	*/
 	netns_vsg[ii]->net = hold_net(net);
 	printk("holding %p \n", netns_vsg[ii]->net);
-/*
-	netns_vsg[ii]->net =  0;
-*/
+/*  netns_vsg[ii]->net =  0; */
+
 	/* Add into the hash list */
 	_netns_add_to_hash_list(netns_vsg[ii]);
 	ulNumVsgsInUse ++;
@@ -210,7 +207,7 @@ ASF_int32_t asfctrl_netns_vsg_create(struct net *net)
 		asfctrl_netns_vsg_delete(net);
 		return T_FAILURE;
 	}
-	printk("ASFCreateVSG succeeded\n");
+	printk("%s: ASFCreateVSG succeeded\n", __func__);
 	return T_SUCCESS;
 }
 
@@ -219,11 +216,8 @@ asfctrl_netns_vsg_t* netns_lookup(struct net *net,
 {
 	asfctrl_netns_vsg_t *node;
 
-	printk("Searching in hash list %p\n", pHead);
-	printk("pHead->pNext = 0x%p\n", pHead->pNext);
 	for (node = pHead->pNext; node != pHead; node = node->pNext)
 	{
-		printk("Searching: node->net = 0x%p\n", node->net);
 		if (node->net == net) /* found a match */	
 			return node;
 	}
@@ -258,14 +252,10 @@ ASF_uint32_t asfctrl_netns_net_to_vsg(struct net *net)
 	asfctrl_netns_vsg_t *netns;
 
 	rcu_read_lock();
-
 	hashVal = ASFCTRL_NETNS_VSG_HASH(net);
-	printk("hashVal = %d\n", hashVal);
-
 	netns = netns_lookup(net,  &(netns_vsg_hash_list[hashVal]));
 	if (netns)
 	{
-		printk("netns found %p\n", netns);
 		rcu_read_unlock();
 		return (netns->ulVSGId);
 	}

@@ -155,7 +155,6 @@ EXPORT_SYMBOL(asf_ipv4_dst_blackhole_ops);
 struct rtable *asf_rt_dst_alloc(struct net_device *dev,
 				   bool nopolicy, bool noxfrm, bool will_cache)
 {
-	printk("In asf_rt_dst_alloc\n");
 	return dst_alloc(&asf_ipv4_dst_blackhole_ops, dev, 1, DST_OBSOLETE_FORCE_CHK,
 			 (will_cache ? 0 : (DST_HOST | DST_NOCACHE)) |
 			 (nopolicy ? DST_NOPOLICY : 0) |

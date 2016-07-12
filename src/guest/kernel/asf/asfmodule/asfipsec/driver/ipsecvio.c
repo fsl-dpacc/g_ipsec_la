@@ -29,7 +29,6 @@
 #include "virtio_ipsec_api.h"
 #include "ipsecvio.h"
 
-
 #define ASF_VIO_DEBUG	printk
 
 struct asf_vdev_info {
@@ -72,8 +71,10 @@ void dbg_prt_blk(char *str, void *key, int keylen)
 void dbg_prt_sa_parms(char *msg, struct g_ipsec_la_sa_add_inargs *in)
 {
 #if 1
-	printk("===%s: dir %d numSA %d spi 0x%x proto %d flags 0x%x ARwinsize %d\n", msg,
-		in->dir, in->num_sas, in->sa_params->spi, in->sa_params->proto,
+	printk("===%s:\n    tnl src 0x%x dst 0x%x\n", msg,
+		in->sa_params->te_addr.src_ip.ipv4, in->sa_params->te_addr.dest_ip.ipv4);
+	printk("    dir %d numSA %d spi 0x%x proto %d flags 0x%x ARwinsize %d\n", in->dir,
+		in->num_sas, in->sa_params->spi, in->sa_params->proto,
 		in->sa_params->cmn_flags, in->sa_params->anti_replay_window_size);
 	printk("    dscp %d dfcmd %d dscpcmd %d reserved %d bAuth %d bEncr %d\n",
 		in->sa_params->outb.dscp, in->sa_params->outb.df_bit_handle,
@@ -85,11 +86,11 @@ void dbg_prt_sa_parms(char *msg, struct g_ipsec_la_sa_add_inargs *in)
 		in->sa_params->crypto_params.icv_len_bits, in->sa_params->soft_kilobytes_limit,
 		in->sa_params->hard_kilobytes_limit, in->sa_params->seqnum_interval);
 	if (in->sa_params->crypto_params.auth_key)
-		dbg_prt_blk("   auth_key:", in->sa_params->crypto_params.auth_key, in->sa_params->crypto_params.auth_key_len_bits/8);
+		dbg_prt_blk("    auth_key:", in->sa_params->crypto_params.auth_key, in->sa_params->crypto_params.auth_key_len_bits/8);
 	else
 		printk("    auth_key null len %d bits\n", in->sa_params->crypto_params.auth_key_len_bits);
 	if (in->sa_params->crypto_params.cipher_key)
-		dbg_prt_blk("   cipher_key:", in->sa_params->crypto_params.cipher_key, in->sa_params->crypto_params.cipher_key_len_bits/8);
+		dbg_prt_blk("    cipher_key:", in->sa_params->crypto_params.cipher_key, in->sa_params->crypto_params.cipher_key_len_bits/8);
 	else printk("    cipher_key null len %d bits\n", in->sa_params->crypto_params.cipher_key_len_bits);
 	if (in->sa_params->crypto_params.iv)
 	 	dbg_prt_blk("   iv:", in->sa_params->crypto_params.iv, in->sa_params->crypto_params.iv_len_bits/8);
@@ -224,7 +225,7 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 	sa_params.crypto_params.iv = NULL;
 	sa_params.crypto_params.cipher_key= NULL;
 	sa_params.crypto_params.auth_key= NULL;
-	sa_params.spi = pSA->SAParams.ulSPI;
+	sa_params.spi = ntohl(pSA->SAParams.ulSPI);
 	sa_params.proto = pSA->SAParams.ucProtocol;
 	sa_params.cmn_flags = 0;
 
@@ -260,7 +261,7 @@ int32_t secfp_createInSAVIpsec(inSA_t *pSA)
 			sa_params.te_addr.dest_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.daddr;
 
 			sa_params.te_addr.src_ip.version = G_IPSEC_LA_IPV4;
-			sa_params.te_addr.dest_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.saddr;
+			sa_params.te_addr.src_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.saddr;
 		}
 	}
 
@@ -455,10 +456,9 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 	sa_params.crypto_params.iv = NULL;
 	sa_params.crypto_params.cipher_key= NULL;
 	sa_params.crypto_params.auth_key= NULL;
-	sa_params.spi = pSA->SAParams.ulSPI;
+	sa_params.spi = ntohl(pSA->SAParams.ulSPI);
 	sa_params.proto = pSA->SAParams.ucProtocol;
 	sa_params.cmn_flags = 0;
-
 	if (pSA->SAParams.bDoUDPEncapsulationForNATTraversal) {
 		sa_params.cmn_flags |= G_IPSEC_LA_SA_DO_UDP_ENCAP_FOR_NAT_TRAVERSAL;
 		sa_params.nat_info.dest_port = pSA->SAParams.IPsecNatInfo.usDstPort;
@@ -491,7 +491,7 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 			sa_params.te_addr.dest_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.daddr;
 
 			sa_params.te_addr.src_ip.version = G_IPSEC_LA_IPV4;
-			sa_params.te_addr.dest_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.saddr;
+			sa_params.te_addr.src_ip.ipv4 = pSA->SAParams.tunnelInfo.addr.iphv4.saddr;
 		}
 	}
 
@@ -625,7 +625,7 @@ int32_t secfp_createOutSAVIpsec(outSA_t *pSA)
 		sa_params.outb.dscp_handle = G_IPSEC_LA_DSCP_SET;
 		sa_params.outb.dscp = pSA->SAParams.ucDscp;
 	}
-		
+
 	switch (pSA->SAParams.handleDf) {
 		case  SECFP_DF_COPY:
 			sa_params.outb.df_bit_handle = G_IPSEC_LA_DF_COPY;
@@ -727,15 +727,19 @@ int32_t secfp_deleteInSAVIpsec(inSA_t *pSA)
 /* handle callback function */
 void secfp_encap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs)
 {
-	secfp_outComplete(NULL,NULL, cb_arg,(int)(outargs));
+	struct sk_buff *skb = (struct sk_buff *)cb_arg;
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
+	secfp_outComplete(NULL, NULL, skb, (int)outargs);
+#else
+	skb->len = cb_arg_len;
+	secfp_outComplete(NULL, NULL, (int)outargs, skb);
+#endif
 }
-
 
 int32_t secfp_vio_encap(outSA_t *pSA,
 	 struct sk_buff *skb, 
-	 void (*cbk)(struct device *dev, u32 *desc,
-				u32 status, void *areq),
-		    void *areq)
+	 void (*cbk)(struct device *dev, u32 *desc, int32_t status, void *areq),
+	 void *areq)
 {
 	int ret;
 	struct g_ipsec_la_data in_data, out_data;
@@ -747,13 +751,12 @@ int32_t secfp_vio_encap(outSA_t *pSA,
 	in_data.length = skb->len;
 
 	out_data.buffer = skb->data;
-	out_data.length = skb->len;
+	out_data.length = skb_end_pointer(skb) - skb->data;
 
 	resp.cb_fn = secfp_encap_complete_cbk;
 	resp.cb_arg = areq;
 	resp.cb_arg_len = sizeof(areq);
 
-		
 	ret = g_ipsec_la_packet_encap(&_asf_device->handle, G_IPSEC_LA_CTRL_FLAG_ASYNC,
 		pSA->sa_handle, 1, &in_data, &out_data, &resp);
 
@@ -763,18 +766,23 @@ int32_t secfp_vio_encap(outSA_t *pSA,
 
 void secfp_decap_complete_cbk(void *cb_arg, int32_t cb_arg_len, void *outargs)
 {
-	secfp_inComplete(NULL, NULL, cb_arg,(int)(outargs));
+	struct sk_buff *skb = (struct sk_buff *)cb_arg;
+#if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
+	secfp_inComplete(NULL, NULL, skb, (int)outargs);
+#else
+	skb->len = cb_arg_len;
+	secfp_inComplete(NULL, NULL, (int)outargs, skb);
+#endif
 }
 
 int32_t secfp_vio_decap(inSA_t *pSA,
 		struct sk_buff *skb,
-		void (*cbk)(struct device *dev, u32 *desc,
-			u32 status, void *areq),
+		void (*cbk)(struct device *dev, u32 *desc, int32_t status, void *areq),
 			void *areq)
 {
+	int ret;
 	struct g_ipsec_la_data in_data, out_data;
 	struct g_ipsec_la_resp_args resp;
-	int ret;
 	/* Need to handle resp callback function */
 
 	/* to check this out */
@@ -782,19 +790,14 @@ int32_t secfp_vio_decap(inSA_t *pSA,
 	in_data.length = skb->len;
 
 	out_data.buffer = skb->data;
-	out_data.length = skb->len;
-
+	out_data.length = skb_end_pointer(skb) - skb->data;
 
 	resp.cb_fn = secfp_decap_complete_cbk;
 	resp.cb_arg = areq;
 	resp.cb_arg_len = sizeof(areq);
-	
-	ret = g_ipsec_la_packet_decap(&_asf_device->handle,G_IPSEC_LA_CTRL_FLAG_ASYNC,
-		pSA->sa_handle ,1,&in_data, &out_data,&resp);
+
+	ret = g_ipsec_la_packet_decap(&_asf_device->handle, G_IPSEC_LA_CTRL_FLAG_ASYNC,
+		pSA->sa_handle, 1, &in_data, &out_data, &resp);
 
 	return ret;
 }
-
-
-
-

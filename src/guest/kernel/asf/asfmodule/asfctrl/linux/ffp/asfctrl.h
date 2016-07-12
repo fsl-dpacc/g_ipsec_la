@@ -169,7 +169,7 @@ typedef void (*asfctrl_ipsec_l2blob_update)(struct sk_buff *skb,
 					ASF_uint32_t hh_len,
 					ASF_uint16_t ulDeviceID);
 
-typedef void (*asfctrl_ipsec_vsg_magicnum_update)(void);
+typedef void (*asfctrl_ipsec_vsg_magicnum_update)(ASF_uint32_t ulVSGId);
 
 extern void asfctrl_register_ipsec_func(asfctrl_ipsec_get_flow_info   p_flow,
 					asfctrl_ipsec_l2blob_update  p_l2blob,
@@ -298,5 +298,11 @@ extern void asfctrl_linux_register_ffp(void);
 #else
 	#define ASFCTRL_DBG(fmt, arg...)
 #endif
+
+
+#define ASFCTRL_NONE(fmt, arg...) 	do { } while (0)
+#define ASFCTRL_PRINT(fmt, arg...) \
+	printk(KERN_ERR"[CPU %d %s:%d] "fmt, smp_processor_id(), __func__, __LINE__, ##arg)
+#define ASFCTRL_FLOW		ASFCTRL_PRINT/*ASFCTRL_NONE*/
 
 #endif /*__ASFCTRL_H__*/

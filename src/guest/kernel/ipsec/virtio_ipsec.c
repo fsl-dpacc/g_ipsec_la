@@ -28,6 +28,7 @@
 #include <linux/stddef.h>
 #include <linux/interrupt.h>
 #include <linux/threads.h>
+//#include <linux/delay.h>
 #include <linux/kernel.h>
 //#include <drivers/virtio/virtio_pci_common.h>
 #include "virtio_pci_common.h"
@@ -274,16 +275,6 @@ void dbg_prt_blk(char *str, void *key, int keylen)
 }
 EXPORT_SYMBOL(dbg_prt_blk);
 
-#if 0
-struct virt_ipsec_info *g_ipsec_dev = NULL;
-void dbg_prt_info(char *func, int line)
-{
-	printk("%s:%d: ", func, line);
-	dbg_prt_blk("ipsec info:", g_ipsec_dev, sizeof(struct virt_ipsec_info));
-}
-EXPORT_SYMBOL(dbg_prt_info);
-#endif
-
 int32_t safe_ref_array_setup(
 	struct safe_ref_array *table,  
 	u32 num_entries, bool b_lock)
@@ -519,12 +510,11 @@ static inline void num_pending_sa_ops_inc(struct v_ipsec_app *app,
 		spin_lock_bh(&group->lock);
 		group->num_sa_ops_pending++;
 		spin_unlock_bh(&group->lock);
-		}
-	else {
+	} else {
 		spin_lock_bh(&app->lock);
 		app->u.no_groups_wrapper.num_sa_ops_pending++;
 		spin_unlock_bh(&app->lock);
-		}
+	}
 }
 
 static inline void num_pending_sa_ops_dec(struct v_ipsec_app *app,
@@ -534,12 +524,11 @@ static inline void num_pending_sa_ops_dec(struct v_ipsec_app *app,
 		spin_lock_bh(&group->lock);
 		group->num_sa_ops_pending--;
 		spin_unlock_bh(&group->lock);
-		}
-	else {
+	} else {
 		spin_lock_bh(&app->lock);
 		app->u.no_groups_wrapper.num_sa_ops_pending--;
 		spin_unlock_bh(&app->lock);
-		}
+	}
 }
 
 static inline bool num_pending_sa_ops_check(struct v_ipsec_app *app,
@@ -550,12 +539,11 @@ static inline bool num_pending_sa_ops_check(struct v_ipsec_app *app,
 		spin_lock_bh(&group->lock);
 		ret = (group->num_sa_ops_pending > 0)? true: false;;
 		spin_unlock_bh(&group->lock);
-		}
-	else {
+	} else {
 		spin_lock_bh(&app->lock);
 		ret = (app->u.no_groups_wrapper.num_sa_ops_pending > 0) ? true:false;
 		spin_unlock_bh(&app->lock);
-		}
+	}
 	return ret;
 }
 
@@ -677,161 +665,97 @@ struct virtipsec_config
 #define vq2dataqpair(vq) ((vq->index-1)/2)
 #define vq2dataqpair(vq) ((vq->index-1)/2)
 
-
 /* Tasklet functions */
-static void _encap_done(unsigned long cpu)
+static void q_scan(struct virtqueue *que)
 {
-	struct virt_ipsec_info *ipsec_dev;
-	struct virtqueue *encap_q;
-	struct ipsec_queue *queue;
 	struct virt_ipsec_data_ctx *d_ctx;
-	struct list_head *list, *next_queue;
 	unsigned int len;
 	struct v_ipsec_sa *sa;
 	struct v_ipsec_app *app;
 	struct v_ipsec_app_grp *grp;
 
+	while ((d_ctx = virtqueue_get_buf(que, &len)) != NULL) {
+		/* Update any stats: TBD : AVS */
+		sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
+		VIRTIO_IPSEC_DBG("vq %d d_ctx 0x%p len %d skb 0x%p\n", que->index,
+			d_ctx, len, d_ctx->cb_arg);
+		if (sa != NULL) {
+			pending_data_blocks_dec(sa);
+			/* find group or app from SA and decrement ops */
+			if (sa->in_group == true) {
+				app = NULL;
+				grp = safe_ref_get_data(&v_ipsec_grps, GET_INDEX_FROM_HANDLE(sa->grp_hndl.handle));
+				if (grp != NULL)
+					num_pending_sa_ops_dec(NULL, grp, true);
+			} else {
+				grp = NULL;
+				app = safe_ref_get_data(&v_ipsec_apps, GET_INDEX_FROM_HANDLE(sa->app_hndl.handle));
+				if (app != NULL)
+					num_pending_sa_ops_dec(app, NULL, false);
+			}
+		}
+		VIRTIO_IPSEC_DBG("pkt callback - app %p grp %p\n", app, grp);
+		/* Call the callback function Need to fill this up */
+		d_ctx->cb_fn(d_ctx->cb_arg, len, (void *)d_ctx->hdr.result);
+	}
+}
+static void _encap_done(unsigned long cpu)
+{
+	//struct virt_ipsec_info *ipsec_dev;
+	struct virtqueue *encap_q;
+	struct ipsec_queue *queue;
+	struct list_head list, *next_queue, *end;
+
 	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the lock and dequeue the first queue */
 	spin_lock_bh(&_encap_cleanup_lists[cpu].lock);
-	list = &_encap_cleanup_lists[cpu].list;
-	INIT_LIST_HEAD(&(_encap_cleanup_lists[cpu].list));
+	end = &_encap_cleanup_lists[cpu].list;
+	list = *end;
+	INIT_LIST_HEAD(end);
 	spin_unlock_bh(&_encap_cleanup_lists[cpu].lock);
 
 	/* Dequeue first item from temporary list */
-	next_queue = list->next;
-	while (next_queue != list) {
+	next_queue = list.next;
+	while (next_queue != end) {
 		queue = (struct ipsec_queue *)next_queue;
 		next_queue = queue->link.next;
 		encap_q = queue->vq;
-		ipsec_dev = encap_q->vdev->priv;
-		
-		while ((d_ctx = virtqueue_get_buf(encap_q, &len)) != NULL) {
-			/* Update any stats: TBD : AVS */
-			sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
-			if (sa != NULL) {
-				pending_data_blocks_dec(sa);
-
-				/* find group or app from SA and decrement ops */
-				if (sa->in_group == true) {
-					grp = safe_ref_get_data(&v_ipsec_grps, GET_INDEX_FROM_HANDLE(sa->grp_hndl.handle));
-					if (grp != NULL)
-						num_pending_sa_ops_dec(app, grp, sa->in_group);
-				}
-				else {
-					app = safe_ref_get_data(&v_ipsec_apps, GET_INDEX_FROM_HANDLE(sa->app_hndl.handle));
-					if (app != NULL)
-						num_pending_sa_ops_dec(app, grp, sa->in_group);
-				}
-			}
-			/* Call the callback function Need to fill this up*/
-			d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, ((void *)(d_ctx->hdr.result)));
-		}
-
-		if (virtqueue_enable_cb(encap_q) == true) {
-			/* there are pending buffers; so read them off */ 
-			while ((d_ctx = virtqueue_get_buf(encap_q, &len)) != NULL) {
-				/* Update any stats: TBD: AVS */
-				sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
-				if (sa != NULL) {
-					pending_data_blocks_dec(sa);
-
-					/* find group or app from SA and decrement ops */
-					if (sa->in_group == true) {
-						grp = safe_ref_get_data(
-							&v_ipsec_grps, GET_INDEX_FROM_HANDLE(sa->grp_hndl.handle));
-						if (grp != NULL)
-							num_pending_sa_ops_dec(app, grp, sa->in_group);
-					}
-					else {
-						app = safe_ref_get_data(&v_ipsec_apps, 
-							GET_INDEX_FROM_HANDLE(sa->app_hndl.handle));
-						if (app != NULL)
-							num_pending_sa_ops_dec(app, grp, sa->in_group);
-					}
-				}
-				/* Call the callback function: Need to fill this up */
-				d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
-			}
-		}
+		//ipsec_dev = encap_q->vdev->priv;
+		VIRTIO_IPSEC_DBG("vq %p idx %d\n", encap_q, encap_q->index);
+		q_scan(encap_q);
+		/* if there are pending buffers, so read them off */ 
+		if (virtqueue_enable_cb(encap_q) == true)
+			q_scan(encap_q);
 	}
 }
 
 static void _decap_done(unsigned long cpu)
 {
-	struct virt_ipsec_info *ipsec_dev;
+	//struct virt_ipsec_info *ipsec_dev;
 	struct virtqueue *decap_q;
 	struct ipsec_queue *queue;
-	struct virt_ipsec_data_ctx *d_ctx;
-	struct list_head *list, *next_elem;
-	unsigned int len;
-	struct v_ipsec_sa *sa;
-	struct v_ipsec_app *app;
-	struct v_ipsec_app_grp *grp;
+	struct list_head list, *next_queue, *end;
 
 	VIRTIO_IPSEC_ENTRY("\n");
 	/* Get the lock and dequeue the first queue */
 	spin_lock_bh(&_decap_cleanup_lists[cpu].lock);
-	list = &_decap_cleanup_lists[cpu].list;
-	INIT_LIST_HEAD(&(_decap_cleanup_lists[cpu].list));
+	end = &_decap_cleanup_lists[cpu].list;
+	list = *end;
+	INIT_LIST_HEAD(end);
 	spin_unlock_bh(&_decap_cleanup_lists[cpu].lock);
 	
 	/* Dequeue first item from temporary list */
-	next_elem = list->next;
-	while (next_elem != list) {
-		queue = (struct ipsec_queue *)next_elem;
-		next_elem = queue->link.next;
+	next_queue = list.next;
+	while (next_queue != end) {
+		queue = (struct ipsec_queue *)next_queue;
+		next_queue = queue->link.next;
 		decap_q = queue->vq;
-		ipsec_dev = decap_q->vdev->priv;
-
-		while ((d_ctx = virtqueue_get_buf(decap_q, &len)) != NULL) {
-			/* Update any stats: TBD : AVS */
-			sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
-			if (sa != NULL) {
-				pending_data_blocks_dec(sa);
-
-				/* find group or app from SA and decrement ops */
-				if (sa->in_group == true) {
-					grp = safe_ref_get_data(&v_ipsec_grps, GET_INDEX_FROM_HANDLE(sa->grp_hndl.handle));
-					if (grp != NULL)
-						num_pending_sa_ops_dec(app, grp, sa->in_group);
-				}
-				else {
-					app = safe_ref_get_data(&v_ipsec_apps, GET_INDEX_FROM_HANDLE(sa->app_hndl.handle));
-					if (app != NULL)
-						num_pending_sa_ops_dec(app, grp, sa->in_group);
-				}
-			}
-			/* Call the callback function Need to fill this up*/
-			d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
-		}
-
-		if (virtqueue_enable_cb(decap_q) == true) {
-				/* there are pending buffers; so read them off */ 
-				while ((d_ctx = virtqueue_get_buf(decap_q, &len)) != NULL) {
-				/* Update any stats: TBD: AVS */
-				sa = VIRT_IPSEC_MGR_GET_SA(d_ctx->sa_hndl.handle);
-				if (sa != NULL) {
-					pending_data_blocks_dec(sa);
-
-					/* find group or app from SA and decrement ops */
-					if (sa->in_group == true) {
-						grp = safe_ref_get_data(
-							&v_ipsec_grps, GET_INDEX_FROM_HANDLE(sa->grp_hndl.handle));
-						if (grp != NULL)
-							num_pending_sa_ops_dec(app, grp, sa->in_group);
-					}
-					else {
-						app = safe_ref_get_data(&v_ipsec_apps, 
-							GET_INDEX_FROM_HANDLE(sa->app_hndl.handle));
-						if (app != NULL)
-							num_pending_sa_ops_dec(app, grp, sa->in_group);
-					}
-				}
-				/* Call the callback function: Need to fill this up */
-				d_ctx->cb_fn(d_ctx->cb_arg, d_ctx->cb_arg_len, (void *)d_ctx->hdr.result);
-			}
-		}
+		//ipsec_dev = decap_q->vdev->priv;
+		VIRTIO_IPSEC_DBG("vq %p idx %d\n", decap_q, decap_q->index);
+		q_scan(decap_q);
+		/* if there are pending buffers, so read them off */ 
+		if (virtqueue_enable_cb(decap_q) == true)
+			q_scan(decap_q);
 	}
 }
 
@@ -875,12 +799,11 @@ static void encap_done(struct virtqueue *encap_q)
 	struct virt_ipsec_info *ipsec_dev = encap_q->vdev->priv;
 	struct ipsec_queue *ipsec_q;
 
-	VIRTIO_IPSEC_ENTRY("\n");
 	ipsec_q = &(ipsec_dev->data_q_pair[vq2dataqpair(encap_q)].encap_q); 
+	VIRTIO_IPSEC_ENTRY("vqid %d\n", ipsec_q->vq->index);
 	
 	/* Disable all the encap_qs for this CPU TBD */
 	virtqueue_disable_cb(encap_q);
-
 	/* Enqueue the virtqueue to the processor's list */
 	list_add((&ipsec_q->link), &(_encap_cleanup_lists[smp_processor_id()].list)); 
 	tasklet_schedule(&(_encap_queue_cleanup[smp_processor_id()]));
@@ -1831,6 +1754,7 @@ int32_t virt_ipsec_send_cmd(struct virt_ipsec_info *dev,
 	struct virtio_ipsec_ctrl_hdr *hdr = (struct virtio_ipsec_ctrl_hdr *)cmd_ctx->cmd_buffer;
 
 	VIRTIO_IPSEC_ENTRY("dev_info %p class %d cmd %d\n", dev, hdr->class, hdr->cmd);
+	dbg_prt_blk("cmd hdr: ", cmd_ctx->cmd_buffer, cmd_ctx->cmd_buffer_len);
 	sg_init_one(&data, cmd_ctx->cmd_buffer, cmd_ctx->cmd_buffer_len);
 	sgs[0] = &data;
 
@@ -2204,6 +2128,8 @@ int32_t virt_ipsec_sa_add(
 
 	//u32 *app_index = (u32 *)&(handle->handle[0]);
 	u32 *group_index = (u32 *)&(handle->group_handle[0]);
+	//u32 gi = G_IPSEC_LA_GROUP_INVALID;
+	//u32 *group_index = &gi;
 	u32 index, index_ref;
 	u32 *ptr;
 	int32_t ret;
@@ -2357,7 +2283,7 @@ int32_t virt_ipsec_sa_add(
 	/* Synchronous mode */
 	ret = handle_response(cmd_ctx);
 	//memcpy(out->handle, sa_ref->hndl.handle, G_IPSEC_LA_SA_HANDLE_SIZE);
-	
+	//sa_add_cleanup(cmd_ctx, app, group,sa, sa_ref);
 	return ret;
 
 err_safe_ref_sa_ref:
@@ -3285,16 +3211,13 @@ int32_t virt_ipsec_sa_get(
 	return VIRTIO_IPSEC_FAILURE;
 }
 
-
 int32_t virt_ipsec_packet_encap(
 	struct g_ipsec_la_handle *handle, 
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
-	uint32_t num_sg, /* num of Scatter Gather elements */
-	struct g_ipsec_la_data *in_data,
-	/* Array of data blocks */
-	struct g_ipsec_la_data *out_data, 
-	/* Array of output data blocks */
+	uint32_t num_sg,					/* num of Scatter Gather elements */
+	struct g_ipsec_la_data *in_data,	/* Array of data blocks */
+	struct g_ipsec_la_data *out_data, /* Array of out data blocks */
 	struct g_ipsec_la_resp_args *resp
 	)
 {
@@ -3314,10 +3237,14 @@ int32_t virt_ipsec_packet_encap(
 	int i, j;
 	u32 *g_hw_handle;
 	u32 *app_index = (u32 *)&(handle->handle[0]);
-	u32 *group_index = (u32 *)&(handle->group_handle[0]);
+	//u32 *group_index = (u32 *)&(handle->group_handle[0]);
+	// TODO: hardcoding group_index to invalid
+	u32 gi = G_IPSEC_LA_GROUP_INVALID;
+	u32 *group_index = &gi;
 	int32_t ret;
 
 	VIRTIO_IPSEC_ENTRY("\n");
+	/* API Checks */
 	if (resp->cb_arg_len > VIRTIO_IPSEC_MAX_CB_ARG_SIZE)
 		goto api_err;
 
@@ -3371,6 +3298,7 @@ int32_t virt_ipsec_packet_encap(
 			EXPAND_HANDLE(sa_handle->ipsec_sa_handle));
 		return VIRTIO_IPSEC_FAILURE;
 	}
+	VIRTIO_IPSEC_CHECK("sa %p sa_ref %p\n", sa, sa_ref);
 
 	if (ipsec_dev->num_q_pairs_per_vcpu != 0) {
 		vars = per_cpu_ptr(ipsec_dev->dq_per_cpu_vars, smp_processor_id());
@@ -3397,8 +3325,8 @@ int32_t virt_ipsec_packet_encap(
 	memcpy(hdr->sa_context_handle, sa->hw_sa_handle, VIRTIO_IPSEC_SA_HANDLE_SIZE);
 
 	d_ctx->cb_fn = resp->cb_fn;
-	d_ctx->cb_arg_len = resp->cb_arg_len;
-	memcpy(d_ctx->cb_arg, resp->cb_arg, resp->cb_arg_len);
+	//d_ctx->cb_arg_len = resp->cb_arg_len;
+	d_ctx->cb_arg = resp->cb_arg;
 	memcpy(d_ctx->sa_hndl.handle, sa_ref->hndl.handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
 
 	/* Need to see if we can get the headroom in the first buffer */
@@ -3409,6 +3337,7 @@ int32_t virt_ipsec_packet_encap(
 	for (i=1, j=0; i < num_sg+1; i++, j++) {
 		hdr->input_data_length += in_data[j].length;
 		sg_init_one(&encap_q_pair->encap_q.sg[i],in_data[j].buffer,in_data[j].length);
+		//dbg_prt_blk("pkt: ", in_data[j].buffer, in_data[j].length);
 	}
 	hdr->num_output_buffers = num_sg;
 	hdr->output_data_length = 0;
@@ -3416,9 +3345,10 @@ int32_t virt_ipsec_packet_encap(
 		hdr->output_data_length += out_data[j].length;
 		sg_init_one(&encap_q_pair->encap_q.sg[i], out_data[j].buffer, out_data[j].length);
 	}
-	VIRTIO_IPSEC_CHECK("HWhdl 0x%x:%x sgs %d len in/out %d/%d\n",
-		EXPAND_HANDLE(sa->hw_sa_handle), num_sg,
-		hdr->input_data_length, hdr->output_data_length);
+	//dbg_prt_blk("encap hdr: ", hdr, sizeof(*hdr));
+	VIRTIO_IPSEC_PKT("vq %d d_ctx 0x%p sgs %d len in/out %d/%d\n",
+		encap_q_pair->encap_q.vq->index, d_ctx, num_sg, hdr->input_data_length,
+		hdr->output_data_length);
 	pending_data_blocks_inc(sa);
 	num_pending_sa_ops_inc(app, group, sa);
 
@@ -3431,16 +3361,14 @@ int32_t virt_ipsec_packet_encap(
 	if (likely(virtqueue_notify(encap_q_pair->encap_q.vq)))
 		goto done;
 err:
+	VIRTIO_IPSEC_ERROR("failed app %p group %p sa %p\n", app, group, sa);
 	pending_data_blocks_dec(sa);
-	num_pending_sa_ops_dec(app, group, sa);
-	VIRTIO_IPSEC_EXIT("failed\n");
+	num_pending_sa_ops_dec(app, group, sa->in_group);
 done:
 	return ret;
-	
 api_err:
-	VIRTIO_IPSEC_EXIT("api error\n");
+	VIRTIO_IPSEC_ERROR("api error\n");
 	return -1;		
-
 }
 EXPORT_SYMBOL(virt_ipsec_packet_encap);
 
@@ -3448,8 +3376,8 @@ int32_t	virt_ipsec_packet_decap(
 	struct g_ipsec_la_handle *handle, 
 	enum g_ipsec_la_control_flags flags,
 	struct g_ipsec_la_sa_handle *sa_handle, /* SA Handle */
-	uint32_t num_sg,	/* number of Scatter Gather elements */
-	struct g_ipsec_la_data *in_data,/* Array of data blocks */
+	uint32_t num_sg,					/* num of Scatter Gather elements */
+	struct g_ipsec_la_data *in_data,	/* Array of data blocks */
 	struct g_ipsec_la_data *out_data, /* Array of out data blocks*/
 	struct g_ipsec_la_resp_args *resp
 	)
@@ -3458,11 +3386,8 @@ int32_t	virt_ipsec_packet_decap(
 	struct v_ipsec_device *dev;
 	struct virt_ipsec_info *ipsec_dev;
 	struct v_ipsec_sa *sa;
-	struct v_ipsec_sa_hndl_ref *sa_ref;
 	struct v_ipsec_app_grp *group;
-	u32 *g_hw_handle;
-	u32 *app_index = (u32 *)&(handle->handle[0]);
-	u32 *group_index = (u32 *)&(handle->group_handle[0]);
+	struct v_ipsec_sa_hndl_ref *sa_ref;
 	struct ipsec_data_q_pair *decap_q_pair;
 //	struct virtqueue *vq, *next_vq;
 	struct virtio_ipsec_hdr *hdr;
@@ -3470,7 +3395,13 @@ int32_t	virt_ipsec_packet_decap(
 	struct virt_ipsec_data_ctx *d_ctx;
 	u8 max;
 	bool b_lock = false;
-	int i;
+	int i, j;
+	u32 *g_hw_handle;
+	u32 *app_index = (u32 *)&(handle->handle[0]);
+	//u32 *group_index = (u32 *)&(handle->group_handle[0]);
+	// TODO: hardcoding group_index to invalid
+	u32 gi = G_IPSEC_LA_GROUP_INVALID;
+	u32 *group_index = &gi;
 	int32_t ret;
 
 	VIRTIO_IPSEC_ENTRY("\n");
@@ -3491,7 +3422,6 @@ int32_t	virt_ipsec_packet_decap(
 	}
 
 	if (*group_index != G_IPSEC_LA_GROUP_INVALID) { /* valid group index */
-
 		group = safe_ref_get_data(&v_ipsec_grps, *group_index);
 		if (group == NULL)	{
 			VIRTIO_IPSEC_DEBUG("%s:%s:%d: Invalid: handle A:%d:%d [G]:%d:%d\n",
@@ -3500,8 +3430,7 @@ int32_t	virt_ipsec_packet_decap(
 			return VIRTIO_IPSEC_FAILURE;
 		}
 		g_hw_handle = group->hw_handle;
-	}
-	else  {
+	} else {
 		group = NULL;
 		g_hw_handle = NULL;
 	}
@@ -3513,6 +3442,9 @@ int32_t	virt_ipsec_packet_decap(
 		return VIRTIO_IPSEC_FAILURE;
 	}	
 	ipsec_dev = dev->info;
+	VIRTIO_IPSEC_DBG("dev %p app %p group 0x%x sa_hdl 0x%x:0x%x\n", dev, app,
+		*group_index, EXPAND_HANDLE(sa_handle->ipsec_sa_handle));
+
 	sa = VIRT_IPSEC_MGR_GET_SA(sa_handle->ipsec_sa_handle);
 	if (sa == NULL) {
 		VIRTIO_IPSEC_DEBUG("%s:%s:%d: Cannot retrieve SA handle=%d:%d\n",
@@ -3527,79 +3459,76 @@ int32_t	virt_ipsec_packet_decap(
 			EXPAND_HANDLE(sa_handle->ipsec_sa_handle));
 		return VIRTIO_IPSEC_FAILURE;
 	}
+	VIRTIO_IPSEC_CHECK("sa %p sa_ref %p\n", sa, sa_ref);
 
 	if (ipsec_dev->num_q_pairs_per_vcpu != 0) {
 		vars = per_cpu_ptr(ipsec_dev->dq_per_cpu_vars, smp_processor_id());
 		max = ipsec_dev->num_q_pairs_per_vcpu;
-	}
-	else {
+	} else {
 		vars = ipsec_dev->dq_per_cpu_vars;
 		max = ipsec_dev->num_queues/2;
 		b_lock = true;
 	}
-
-	
 	decap_q_pair = &(ipsec_dev->data_q_pair[vars->data_q_pair_index_cur_decap]);
 	vars->data_q_pair_index_cur_decap++;
-	if ((vars->data_q_pair_index_cur_decap - vars->data_q_pair_index_start_decap) >
-		max) {
+	if ((vars->data_q_pair_index_cur_decap - vars->data_q_pair_index_start_decap) >= max)
 		vars->data_q_pair_index_cur_decap = vars->data_q_pair_index_start_decap;
-	}
 	
 	d_ctx = decap_q_pair->decap_ctx;
 	hdr = &((d_ctx + decap_q_pair->decap_q_index_cur)->hdr);
 	decap_q_pair->decap_q_index_cur++;
 	if (decap_q_pair->decap_q_index_cur == decap_q_pair->decap_q_index_max)
 		decap_q_pair->decap_q_index_cur = 0;
-		
-	/* To change later; but for now, alloc */
-	memcpy(hdr->group_handle, g_hw_handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
+
+	if (g_hw_handle)
+		memcpy(hdr->group_handle, g_hw_handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
+	else memset(hdr->group_handle, 0, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
 	memcpy(hdr->sa_context_handle, sa->hw_sa_handle, VIRTIO_IPSEC_SA_HANDLE_SIZE);
+
+	d_ctx->cb_fn = resp->cb_fn;
+	//d_ctx->cb_arg_len = resp->cb_arg_len;
+	d_ctx->cb_arg = resp->cb_arg;
+	memcpy(d_ctx->sa_hndl.handle, sa_ref->hndl.handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
+
+	/* Need to see if we can get the headroom in the first buffer */
+	sg_init_table(decap_q_pair->decap_q.sg, MAX_SKB_FRAGS+2);
+	sg_init_one(&decap_q_pair->decap_q.sg[0], hdr, sizeof(struct virtio_ipsec_hdr));
 	hdr->num_input_buffers = num_sg;
 	hdr->input_data_length = 0;
-	for (i=0; i < hdr->num_input_buffers; i++)
-	{
-		hdr->input_data_length += in_data[i].length;
+	for (i=1, j=0; i < num_sg+1; i++, j++) {
+		hdr->input_data_length += in_data[j].length;
+		sg_init_one(&(decap_q_pair->decap_q.sg[i]),in_data[j].buffer,in_data[j].length);
+		//dbg_prt_blk("pkt: ", in_data[j].buffer, in_data[j].length);
 	}
 	hdr->num_output_buffers = num_sg;
 	hdr->output_data_length = 0;
-	for (i=0; i < hdr->num_output_buffers; i++)
-	{
-		hdr->output_data_length += out_data[i].length;
+	for (j=0; i < 2*num_sg+1; i++, j++) {
+		hdr->output_data_length += out_data[j].length;
+ 		sg_init_one(&decap_q_pair->decap_q.sg[i], out_data[j].buffer, out_data[j].length);
 	}
-	d_ctx->cb_fn = resp->cb_fn;
-	d_ctx->cb_arg_len = resp->cb_arg_len;
-	memcpy(d_ctx->cb_arg, resp->cb_arg, resp->cb_arg_len);
-	memcpy(d_ctx->sa_hndl.handle, sa_ref->hndl.handle, G_IPSEC_LA_INTERNAL_HANDLE_SIZE);
-
-	sg_init_table(decap_q_pair->decap_q.sg,MAX_SKB_FRAGS+2);
-
-	/* Need to see if we can get the headroom in the first buffer */
-	sg_set_buf(&(decap_q_pair->decap_q.sg[0]), hdr, sizeof(struct virtio_ipsec_hdr));
-	for (i=1; i < num_sg; i++)
-	{
-		sg_set_buf(&(decap_q_pair->decap_q.sg[i]),in_data[i].buffer,in_data[i].length);
-	}
-	for (; i < num_sg; i++)
-	{
-		sg_set_buf(&(decap_q_pair->decap_q.sg[i]), out_data[i].buffer, out_data[i].length);
-	}
-
+	//dbg_prt_blk("decap hdr: ", hdr, sizeof(*hdr));
+	VIRTIO_IPSEC_PKT("vq %d d_ctx 0x%p sgs %d len in/out %d/%d\n",
+		decap_q_pair->decap_q.vq->index, d_ctx, num_sg, hdr->input_data_length,
+		hdr->output_data_length);
 	pending_data_blocks_inc(sa);
 	num_pending_sa_ops_inc(app, group, sa);
 
 	ret = virtqueue_add_sgs(decap_q_pair->decap_q.vq, decap_q_pair->decap_q.sg_ptr,
-		 num_sg, num_sg, d_ctx, GFP_ATOMIC);
+		 num_sg+1, num_sg, d_ctx, GFP_ATOMIC);
+	if (ret != VIRTIO_IPSEC_SUCCESS)
+		goto err;
 
-
-	if (ret != VIRTIO_IPSEC_SUCCESS) {
-		pending_data_blocks_dec(sa);
-		num_pending_sa_ops_dec(app, group, sa);
-	}
-	else VIRTIO_IPSEC_EXIT("success\n");
-
+	// TODO: find why kick does not work - if (unlikely(!virtqueue_kick(dev->cvq->vq)))
+	if (likely(virtqueue_notify(decap_q_pair->decap_q.vq)))
+		goto done;
+err:
+	VIRTIO_IPSEC_ERROR("failed app %p group %p sa %p\n", app, group, sa);
+	pending_data_blocks_dec(sa);
+	num_pending_sa_ops_dec(app, group, sa->in_group);
+done:
 	return ret;
 api_err:
+	VIRTIO_IPSEC_ERROR("api error\n");
 	return -1;
 }
 EXPORT_SYMBOL(virt_ipsec_packet_decap);
@@ -3844,6 +3773,7 @@ err_data_q_pair:
 	return -1;
 }
 	
+int reset_vq_indirect(struct virtqueue *vq);
 static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 {
 	vq_callback_t **callbacks;
@@ -3877,7 +3807,7 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 	callbacks[0] = control_job_done;
 	if (ipsec_dev->b_notify_q) {
 		names[total_vqs-1] = "notify";
-		callbacks[total_vqs-1] = notify_done;
+	//	callbacks[total_vqs-1] = notify_done;
 	}
 
 	max_queue_pairs = ipsec_dev->num_queues/2;
@@ -3901,7 +3831,7 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 	if (ret)
 		goto err_find;
 	for (i = 0; i < total_vqs; ++i)
-		printk("vq[%d]=%p\n", i, vqs[i]);
+		printk("vq[%d]=%p indirect %d reset to direct\n", i, vqs[i], reset_vq_indirect(vqs[i]));
 
 	for (i=0; i < max_queue_pairs; i++) {
 		ipsec_dev->data_q_pair[i].decap_q.vq = vqs[decap2vq(i)];
@@ -3936,7 +3866,6 @@ static int virtipsec_find_vqs(struct virt_ipsec_info *ipsec_dev)
 		printk("vpdev.vq pair %d decap %p size %d encap %p size %d\n", i,
 			vp_dev->vqs[decap2vq(i)]->vq, vp_dev->vqs[decap2vq(i)]->num,
 			vp_dev->vqs[encap2vq(i)]->vq, vp_dev->vqs[encap2vq(i)]->num);
-
 		info = vp_dev->vqs[decap2vq(i)];
 		ipsec_dev->data_q_pair[i].decap_ctx = (struct virt_ipsec_data_ctx *)kmalloc(
 			sizeof(struct virt_ipsec_data_ctx) * info->num, GFP_KERNEL);
@@ -4441,9 +4370,9 @@ int virt_ipsec_probe( struct virtio_device *vdev)
 	INIT_WORK(&ipsec_dev->c_work, _ipsec_control_job_done);
 	VIRTIO_IPSEC_DEBUG("Writing device ok\n");
 	virtio_device_ready(vdev);
+	dbg_prt_blk("ipsec info:", ipsec_dev, sizeof(struct virt_ipsec_info));
 
 	VIRTIO_IPSEC_EXIT("success\n");
-	//g_ipsec_dev = ipsec_dev;
 	return 0;
 
 free_resource:

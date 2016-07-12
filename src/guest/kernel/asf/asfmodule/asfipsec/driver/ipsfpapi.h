@@ -725,6 +725,7 @@ typedef struct ASFIPSecCbfFn_s {
 	pASFIPSecCbFnInterfaceInfoNotFound_f pFnIfaceNotFound;
 	pASFIPSecCbFnVerifySPD_f	    pFnVerifySPD;
 	pASFIPSecCbFnRefreshL2Blob_f	pFnRefreshL2Blob;
+	pASFIPSecCbFnRefreshL2Blob_f	pFnRefreshL2Blob_First;
 	pASFIPSecCbFnDPDAlive_f	     pFnDPDAlive;
 	pASFIPSecCbFnAuditLog_f	     pFnAuditLog;
 	pASFIPSecCbFnSeqNoOverFlow_f	pFnSeqNoOverFlow;

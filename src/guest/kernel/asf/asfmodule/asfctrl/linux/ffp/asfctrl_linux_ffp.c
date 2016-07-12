@@ -239,10 +239,16 @@ ASF_void_t  asfctrl_fnNoFlowFound(
 
 	if (!bVal)
 		local_bh_disable();
-
-	//printk("Flow Not found : ulVSGId=%d, skb=%p : Sending it to normal path\n", ulVSGId, skb);
-	//printk("Flow Not found : dev=%p, net=%p init_net=%p: Sending it to normal path\n", skb->dev, dev_net(skb->dev), &init_net);
-
+//if (skb->dev->name[3] == '1') // print only for pkts from eth1
+{
+	//skb->ip_summed = CHECKSUM_NONE;
+	ASFCTRL_FLOW("netif_rcv: devname=%s machdr=%p maclen=%d data=0x%p len=%d\n",
+		skb->dev->name, skb_mac_header(skb), skb->mac_len, skb->data, skb->len);
+	ASFCTRL_FLOW("  l2proto=%#x l3proto=%d vlan=%#x ipsummed=%d pkt_type=%d\n",
+		skb->protocol, skb->data[9], skb->vlan_tci, skb->ip_summed, skb->pkt_type);
+	ASFCTRL_FLOW("  data_len=%d nwhdr=%p xporthdr=%p tail=%p\n",
+		skb->data_len, skb_network_header(skb), skb_transport_header(skb), skb_tail_pointer(skb));
+}
 	/* Send it to for normal path handling */
 	ASFCTRL_netif_receive_skb(skb);
 
@@ -759,14 +765,13 @@ static int32_t asfctrl_destroy_session(struct nf_conn *ct_event)
 	}
 
 	cmd.tuple.bIPv4OrIPv6 = pf_ipv6;
-
-	cmd.tuple.usDestPort = ct_tuple_orig->dst.u.tcp.port;
-	cmd.tuple.usSrcPort = ct_tuple_orig->src.u.tcp.port;
-
+	if (cmd.tuple.ucProtocol != IPPROTO_ICMP) {
+		cmd.tuple.usDestPort = ct_tuple_orig->dst.u.tcp.port;
+		cmd.tuple.usSrcPort = ct_tuple_orig->src.u.tcp.port;
+	} else
+		cmd.tuple.usDestPort = cmd.tuple.usSrcPort = 0;
 
 	cmd.ulZoneId = ASF_DEF_ZN_ID;
-
-
 
 	/* Subha: Change: 11/6 */
 	if (ASFFFPRuntime((asfctrl_netns_net_to_vsg(ct_event->ct_net)), /*ASF_DEF_VSG, */
@@ -793,7 +798,6 @@ static int32_t asfctrl_offload_session(struct nf_conn *ct_event)
 	ASF_uint32_t ulVSGId;
 
 	ASFCTRL_FUNC_ENTRY;
-
 	/* ALG session cannot be offloaded */
 	if (nf_ct_ext_exist(ct_event, NF_CT_EXT_HELPER)) {
 		ASFCTRL_INFO("ALG flow.. ignoring");
@@ -801,7 +805,7 @@ static int32_t asfctrl_offload_session(struct nf_conn *ct_event)
 	}
 
 	net = ct_event->ct_net;
-	printk("Offload Event: net =%p\n", net);
+	//printk("Offload Event: net =%p\n", net);
 	ct_tuple_orig = tuple(ct_event, IP_CT_DIR_ORIGINAL);
 
 	ASFCTRL_INFO("[ORIGINAL]proto = %u src ip = " NIPQUAD_FMT
@@ -841,10 +845,11 @@ static int32_t asfctrl_offload_session(struct nf_conn *ct_event)
 	/* Non  TCT/UDP session cannot be offloaded */
 	if ((ct_tuple_orig->dst.protonum != IPPROTO_UDP)
 		&& (ct_tuple_orig->dst.protonum != IPPROTO_TCP)
+		&& (ct_tuple_orig->dst.protonum != IPPROTO_ICMP)
 		&& (ct_tuple_reply->dst.protonum != IPPROTO_UDP)
+		&& (ct_tuple_reply->dst.protonum != IPPROTO_ICMP)
 		&& (ct_tuple_reply->dst.protonum != IPPROTO_TCP)) {
-
-		ASFCTRL_INFO("Non TCP/UDP connection, ignoring");
+		ASFCTRL_INFO("Non TCP/UDP/ICMP connection, ignoring");
 		return -EINVAL;
 	}
 
@@ -947,6 +952,8 @@ static int32_t asfctrl_offload_session(struct nf_conn *ct_event)
 
 	/* Fill command for flow 1 */
 	cmd.flow1.tuple.ucProtocol = orig_prot;
+	if (orig_prot == IPPROTO_ICMP)
+		orig_sport = orig_dport = reply_sport = reply_dport = 0;
 
 	if (pf_ipv6 == true) {
 		ipv6_addr_copy((struct in6_addr *)&(cmd.flow1.tuple.ipv6SrcIp), (struct in6_addr *)&ip6_orig_sip);
@@ -1211,9 +1218,7 @@ static int32_t asfctrl_offload_session(struct nf_conn *ct_event)
 	}
 
 	/* Subha: Change 8 11/6 */
-	printk("ct_net = %p, &init_net =%p\n", ct_event->ct_net, &init_net);
 	ulVSGId = asfctrl_netns_net_to_vsg(ct_event->ct_net);
-	printk("ulVSGId = %d\n", ulVSGId);
 	if (ASFFFPRuntime(ulVSGId, /* ASF_DEF_VSG, */
 			 ASF_FFP_CREATE_FLOWS,
 			 &cmd, sizeof(cmd), NULL, 0) ==
@@ -1276,6 +1281,7 @@ static int asfctrl_conntrack_event(unsigned int events, struct nf_ct_event *ptr)
 
 	ASFCTRL_FUNC_ENTRY;
 	if (events & (1 << IPCT_DESTROY)) {
+//printk("%s destroy\n", __func__);
 		ASFCTRL_INFO("IPCT_DESTROY!");
 		/* Remove the connection if its previously offloaded */
 		if (ct->status & IPS_ASF_OFFLOADED) {
@@ -1290,9 +1296,14 @@ static int asfctrl_conntrack_event(unsigned int events, struct nf_ct_event *ptr)
 		if (ct_tuple->dst.protonum == IPPROTO_UDP) {
 			ASFCTRL_INFO("UDP flow");
 			asfctrl_offload_session(ct);
+		} else	if (ct_tuple->dst.protonum == IPPROTO_ICMP) {
+//printk("%s new or related icmp\n", __func__);
+			ASFCTRL_INFO("icmp flow");
+			asfctrl_offload_session(ct);
 		}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 34))
 	} else if (events & (1 << IPCT_ASSURED)) {
+//printk("%s assured\n", __func__);
 		ASFCTRL_INFO("IPCT_ASSURED!");
 #else
 	} else if (events & (1 << IPCT_STATUS)) {
@@ -1300,6 +1311,7 @@ static int asfctrl_conntrack_event(unsigned int events, struct nf_ct_event *ptr)
 		/* Offload the connection if status is assured */
 		if ((ct_tuple->dst.protonum == IPPROTO_TCP) &&
 			(ct->status & IPS_ASSURED)) {
+//printk("%s tcp\n", __func__);
 			ASFCTRL_INFO("TCP flow");
 			asfctrl_offload_session(ct);
 		}
@@ -1456,16 +1468,20 @@ void ffp_sysfs_exit(void)
 
 
 /* Subha: 11/7 */
-
+extern int (*asf_ct_cbfn)(unsigned int events, struct nf_ct_event *item);
 void asfctrl_linux_register_ffp_byname(struct net *net)
 {
 	ASFCTRL_FUNC_ENTRY;
 
 	need_conntrack();
+#if 0
 	if (nf_conntrack_register_notifier(net, &asfctrl_conntrack_event_nb) < 0) {
 		ASFCTRL_ERR("Register conntrack notifications failed for namespace 0x%p\n!", net);
 		return ;
 	}
+#else
+	asf_ct_cbfn = asfctrl_conntrack_event;
+#endif
 	ASFCTRL_FUNC_EXIT;
 }
 
@@ -1505,7 +1521,11 @@ void asfctrl_linux_register_ffp(void)
 void asfctrl_linux_unregister_ffp_byname(struct net *net)
 {
 	ASFCTRL_FUNC_ENTRY;
+#if 0
 	nf_conntrack_unregister_notifier(net, &asfctrl_conntrack_event_nb);
+#else
+	asf_ct_cbfn = NULL;
+#endif
 	ASFCTRL_FUNC_EXIT;
 }
 

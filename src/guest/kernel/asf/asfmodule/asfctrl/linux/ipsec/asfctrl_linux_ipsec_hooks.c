@@ -1304,7 +1304,6 @@ int asfctrl_xfrm_enc_hook(struct xfrm_policy *xp,
 {
 	int i;
 	int 	handle;
-
 	ASFCTRL_FUNC_ENTRY;
 
 	if (is_sa_offloadable(xfrm))

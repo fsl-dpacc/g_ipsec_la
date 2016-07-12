@@ -66,9 +66,15 @@ enum {
 	((unsigned char *)&addr)[1], \
 	((unsigned char *)&addr)[2], \
 	((unsigned char *)&addr)[3]
+#define HIPQUAD(addr) \
+	((unsigned char *)&addr)[3], \
+	((unsigned char *)&addr)[2], \
+	((unsigned char *)&addr)[1], \
+	((unsigned char *)&addr)[0]
 #endif
 #ifndef NIPQUAD_FMT
-#define NIPQUAD_FMT "%u.%u.%u.%u"
+#define NIPQUAD_FMT	"%u.%u.%u.%u"
+#define IPQUAD_FMT		"%u.%u.%u.%u"
 #endif
 
 /****** Common API ********/

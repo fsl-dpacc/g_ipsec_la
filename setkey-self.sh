@@ -33,10 +33,9 @@ spdadd 192.168.3.212 192.168.3.211 any -P in ipsec
 # ESP SAs doing encryption using 192 bit long keys (168 + 24 parity)
 # and hmac-sha1 authentication using 160 bit long keys
 add 192.168.3.211 192.168.3.212 esp 0x201 -m tunnel
-    -E 3des-cbc  0x7aeaca3f87d060a12f4a4487d5a5c3355920fae69a96c831
+    -E aes-cbc  0x7aeaca3f87d060a12f4a4487d5a5c3355920fae69a96c831
     -A hmac-sha1 0xe9c43acd5e8d779b6e09c87347852708ab49bdd3;
 
 add 192.168.3.212 192.168.3.211 esp 0x301 -m tunnel
-    -E 3des-cbc  0xf6ddb555acfd9d77b03ea3843f2653255afe8eb5573965df
+    -E aes-cbc  0xf6ddb555acfd9d77b03ea3843f2653255afe8eb5573965df
     -A hmac-sha1 0xea6856479330dc9c17b8f6c37e2a895363d83f21;
-

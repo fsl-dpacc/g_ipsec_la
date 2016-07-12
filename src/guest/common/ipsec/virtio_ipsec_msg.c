@@ -318,6 +318,21 @@ int32_t virt_ipsec_msg_group_delete(
 	 VIRTIO_IPSEC_MAX_KEY_IV_LEN +	\
 	 VIRTIO_IPSEC_MAX_KEY_IV_LEN)
 
+/* this macro should only be used in virt_ipsec_msg_sa_add */
+#define VIOIPS_MSGLEN_CHK(size) do { \
+	if ((size) >= lenchk) { \
+		printk("%s:%d ======msg buffer overflow======\n", __func__, __LINE__); \
+		kfree(buf_start); \
+		return -ENOMEM; \
+	} \
+	lenchk -= (size); \
+} while (0)
+#define VIOIPS_MAX_CHK(val, max) do { \
+	if ((val) > (max)) \
+		printk("%s:%d ======val %d forced to max %d======\n", __func__, __LINE__, \
+			val, (int)max); \
+} while (0)
+
 int32_t virt_ipsec_msg_sa_add(u32 *handle, 
 	 const struct g_ipsec_la_sa_add_inargs *in, u32 *len, u8 **msg,
 	 u8 **result_ptr)
@@ -338,17 +353,20 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 
 	struct g_ipsec_la_sa *sa_params = in->sa_params;
 	u8 *buf, *buf_start;
+	u32 lenchk;
 	
 	/* Check num_sas  to see if we support SA Bundle */
 	/* Check feature bits for compatibility */
 
 	buf_start = buf = kzalloc(VIRTIO_IPSEC_ADD_SA_MSG_SIZE, GFP_KERNEL);
+	lenchk = VIRTIO_IPSEC_ADD_SA_MSG_SIZE;
 	if (buf == NULL) {
 		VIRTIO_IPSEC_MSG_DEBUG("%s:%s:%d:Add SA Out of memory  \n",
 			__FILE__, __func__, __LINE__);
 		return -ENOMEM;
 	}
 
+	VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_ctrl_hdr));
 	hdr = (struct virtio_ipsec_ctrl_hdr *)buf;
 	hdr->class = VIRTIO_IPSEC_CTRL_SA;
 	if (in->dir == G_IPSEC_LA_SA_OUTBOUND)
@@ -358,6 +376,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 	*len = sizeof(struct virtio_ipsec_ctrl_hdr);
 	buf += sizeof(struct virtio_ipsec_ctrl_hdr);
 
+	VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_create_sa));
 	v_create_sa = (struct virtio_ipsec_create_sa *)buf;
 	if (handle != NULL)
 		memcpy(v_create_sa->group_handle, handle, VIRTIO_IPSEC_GROUP_HANDLE_SIZE);
@@ -367,12 +386,11 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 	v_create_sa->num_sas = in->num_sas;
 	v_sa_params = &v_create_sa->sa_params;
 	v_sa_params->ulSPI = sa_params->spi;
-
 	if (sa_params->proto == G_IPSEC_LA_PROTOCOL_ESP)
 		v_sa_params->proto = VIRTIO_IPSEC_SA_PARAMS_PROTO_ESP;
-
-	if (sa_params->proto == G_IPSEC_LA_PROTOCOL_AH)
+	else if (sa_params->proto == G_IPSEC_LA_PROTOCOL_AH)
 		v_sa_params->proto = VIRTIO_IPSEC_SA_PARAMS_PROTO_AH;
+    VIRTIO_IPSEC_DBG("cmd %d proto %d\n", hdr->cmd, v_sa_params->proto);
 
 	/* Check ECN, ESN etc. */
 	if (sa_params->cmn_flags & G_IPSEC_LA_SA_USE_ESN)
@@ -416,6 +434,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		if (!(sa_params->cmn_flags & G_IPSEC_LA_SA_USE_IPv6)) { /* Use IPv4 */
 			v_sa_params->bIPv4OrIPv6 = VIRTIO_IPSEC_TUNNEL_HDR_IS_IPV4;
 
+			VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_tunnel_hdr_ipv4));
 			ipv4 = (struct virtio_ipsec_tunnel_hdr_ipv4 *)buf;
 			/* Populate the tunnel data structure */
 			ipv4->saddr = sa_params->te_addr.src_ip.ipv4;
@@ -453,6 +472,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		} else { /* use ipv6 */
 			v_sa_params->bIPv4OrIPv6 = VIRTIO_IPSEC_TUNNEL_HDR_IS_IPV6;
 
+			VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_tunnel_hdr_ipv6));
 			ipv6 = (struct virtio_ipsec_tunnel_hdr_ipv6 *)buf;
 			memcpy(ipv6->s_addr, sa_params->te_addr.src_ip.ipv6.w_addr, 16);
 			memcpy(ipv6->d_addr, sa_params->te_addr.dest_ip.ipv6.w_addr, 16);
@@ -493,6 +513,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 
 	/* Copy the crypto parameters */
 	if (v_sa_params->proto == VIRTIO_IPSEC_SA_PARAMS_PROTO_ESP) {
+		VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_esp_info));
 		esp = (struct virtio_ipsec_esp_info *)buf;
 		esp->bEncrypt = true;
 		switch (sa_params->crypto_params.cipher_algo) {
@@ -548,8 +569,10 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		*len += sizeof(struct virtio_ipsec_esp_info);
 		buf += sizeof(struct virtio_ipsec_esp_info);
 
+		VIOIPS_MSGLEN_CHK(sizeof(struct cipher_key));
 		cipher_key_info = (struct cipher_key *)buf; 
 		cipher_key_info->lv.len = sa_params->crypto_params.cipher_key_len_bits/8;
+		VIOIPS_MAX_CHK(cipher_key_info->lv.len, sizeof(cipher_key_info->lv.data));
 		memcpy(cipher_key_info->lv.data, sa_params->crypto_params.cipher_key, 
 			cipher_key_info->lv.len);
 		*len += sizeof(struct cipher_key);
@@ -559,8 +582,10 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 			esp->bAuth = true;
 			esp->auth_algo = sa_params->crypto_params.auth_algo;
 
+			VIOIPS_MSGLEN_CHK(sizeof(struct auth_key));
 			auth_key_info = (struct auth_key *)buf;
 			auth_key_info->lv.len = sa_params->crypto_params.auth_key_len_bits/8;
+			VIOIPS_MAX_CHK(auth_key_info->lv.len, sizeof(auth_key_info->lv.data));
 			memcpy(auth_key_info->lv.data, sa_params->crypto_params.auth_key,
 				auth_key_info->lv.len);
 			esp->ICVSize = sa_params->crypto_params.icv_len_bits/8;
@@ -568,8 +593,10 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 			buf += sizeof(struct auth_key);
 		}
 	
+		VIOIPS_MSGLEN_CHK(sizeof(struct nounce_iv));
 		nounce_iv_info = (struct nounce_iv *)buf; 
 		nounce_iv_info->lv.len = sa_params->crypto_params.iv_len_bits/8;
+		VIOIPS_MAX_CHK(nounce_iv_info->lv.len, sizeof(nounce_iv_info->lv.data));
 		memcpy(nounce_iv_info->lv.data, sa_params->crypto_params.iv,
 			nounce_iv_info->lv.len);
 		*len += sizeof(struct nounce_iv);
@@ -577,6 +604,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 	}
 
 	if (v_sa_params->proto == VIRTIO_IPSEC_AH) {
+		VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_ah_info));
 		ah = (struct virtio_ipsec_ah_info *)buf;
 		switch(sa_params->crypto_params.auth_algo) {
 			case G_IPSEC_LA_AUTH_ALGO_NONE:	/* No Authentication */
@@ -607,8 +635,10 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		*len += sizeof(struct virtio_ipsec_ah_info);
 		buf += sizeof(struct virtio_ipsec_ah_info);
 
+		VIOIPS_MSGLEN_CHK(sizeof(struct auth_key));
 		auth_key_info = (struct auth_key *)buf;
 		auth_key_info->lv.len = sa_params->crypto_params.auth_key_len_bits/8;
+		VIOIPS_MAX_CHK(auth_key_info->lv.len, sizeof(auth_key_info->lv.data));
 		memcpy(auth_key_info->lv.data, sa_params->crypto_params.auth_key,
 			auth_key_info->lv.len);
 		ah->ICVSize = sa_params->crypto_params.icv_len_bits/8;
@@ -617,6 +647,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 	}
 
 	if (v_sa_params->bDoUDPEncapsulation) {
+		VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_udp_encapsulation_info));
 		udp_encap = (struct virtio_ipsec_udp_encapsulation_info *)(buf);
 		// TBD : udp_encap->ulNatTraversalMode = sa_params->nat_info.;
 		udp_encap->d_port = sa_params->nat_info.dest_port;
@@ -625,6 +656,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		buf += sizeof(struct virtio_ipsec_udp_encapsulation_info);
 	}
 	if (v_sa_params->bNotifySoftLifeKBExpiry) {
+		VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_notify_lifetime_kb));
 		notify_kb = (struct virtio_ipsec_notify_lifetime_kb *)(buf);
 		notify_kb->hard_lifetime_in_kb = sa_params->hard_kilobytes_limit;
 		notify_kb->soft_lifetime_in_kb = sa_params->soft_kilobytes_limit;
@@ -632,6 +664,7 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 		buf += sizeof(struct virtio_ipsec_notify_lifetime_kb);
 	}
 	if (v_sa_params->bNotifySeqNumPeriodic) {
+		VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_notify_seqnum_periodic));
 		seqnum_periodic = (struct virtio_ipsec_notify_seqnum_periodic*)(buf);
 		seqnum_periodic->seqnum_interval = sa_params->seqnum_interval;
 		*len += sizeof(struct virtio_ipsec_notify_seqnum_periodic);
@@ -639,9 +672,12 @@ int32_t virt_ipsec_msg_sa_add(u32 *handle,
 	}
 
 	/* Account for the result */
+	VIOIPS_MSGLEN_CHK(sizeof(struct virtio_ipsec_ctrl_result));
 	*result_ptr = buf_start + (*len);
 	v_create_sa->sa_len = *len;
 	*msg = buf_start;
+	VIRTIO_IPSEC_DBG("cmdbuf %p cmdlen %d totbuf %ld rsltptr %p\n", *msg, *len,
+		VIRTIO_IPSEC_ADD_SA_MSG_SIZE, result_ptr);
 	*len += sizeof(struct virtio_ipsec_ctrl_result);
 
 	return VIRTIO_IPSEC_SUCCESS;
@@ -864,23 +900,3 @@ int32_t virt_ipsec_msg_release(u8 *buf)
  	kfree(buf);
 	return 0;
 }
-	
-
-
-
-
-
-
-
-
-
-
-
-	
-
-
-
-	
-	
-
-

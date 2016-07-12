@@ -32,12 +32,26 @@ VIRTIO_RING_F_EVENT_IDX		29
 */
 
 #undef printk
-#define VIRTIO_IPSEC_DEBUG		printk
-#define VIRTIO_IPSEC_ENTRY(fmt, arg...)	printk("%s ===entry: "fmt, __func__, ##arg)
-#define VIRTIO_IPSEC_EXIT(fmt, arg...)	printk("%s ===exit: "fmt, __func__, ##arg)
+#define VIRTIO_IPSEC_DEBUG				printk
+#define VIRTIO_IPSEC_PRINT(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
+
+//#define VIRTIO_IPSEC_ENTRY(fmt, arg...)	printk("%s ===entry: "fmt, __func__, ##arg)
+#define VIRTIO_IPSEC_ENTRY(fmt, arg...)	do { } while (0)
+
+//#define VIRTIO_IPSEC_EXIT(fmt, arg...)	printk("%s ===exit: "fmt, __func__, ##arg)
+#define VIRTIO_IPSEC_EXIT(fmt, arg...)	do { } while (0)
+
 #define VIRTIO_IPSEC_ERROR(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
-#define VIRTIO_IPSEC_DBG(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
-#define VIRTIO_IPSEC_CHECK(fmt, arg...)	printk("%s/%d: check-"fmt, __func__, __LINE__, ##arg)
+//#define VIRTIO_IPSEC_ERROR(fmt, arg...)	do { } while (0)
+
+//#define VIRTIO_IPSEC_DBG(fmt, arg...)	printk("%s/%d: "fmt, __func__, __LINE__, ##arg)
+#define VIRTIO_IPSEC_DBG(fmt, arg...)	do { } while (0)
+
+//#define VIRTIO_IPSEC_CHECK(fmt, arg...)	printk("%s/%d: check-"fmt, __func__, __LINE__, ##arg)
+#define VIRTIO_IPSEC_CHECK(fmt, arg...)	do { } while (0)
+
+#define VIRTIO_IPSEC_PKT		VIRTIO_IPSEC_DBG/*VIRTIO_IPSEC_PRINT*/
+#define VIRTIO_IPSEC_SA		/*VIRTIO_IPSEC_DBG*/VIRTIO_IPSEC_PRINT
 
 #define G_IPSEC_LA_INTERNAL_HANDLE_SIZE	G_IPSEC_LA_HANDLE_SIZE
 
@@ -100,7 +114,7 @@ struct virt_ipsec_data_ctx
 	struct virtio_ipsec_hdr hdr;
 	g_ipsec_la_resp_cbfn	cb_fn;
 	struct v_ipsec_sa_hndl sa_hndl;
-	u8 cb_arg[VIRTIO_IPSEC_MAX_CB_ARG_SIZE];
+	void *cb_arg;
 	u32 cb_arg_len;
 };
 	

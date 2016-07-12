@@ -195,8 +195,9 @@ void dbg_prt_blk(char *str, void *key, int keylen);
 #define SECFP_SABITMAP_COEF_INDEX	39
 #define SECFP_SABITMAP_REMAIN_INDEX	40
 #define SECFP_VSG_ID_INDEX		44
-#define SECFP_SECHDR_INDEX		48
-#define SECFP_SECLEN_INDEX		52
+#define SECFP_GW_IP_INDEX			48
+#define SECFP_SECHDR_INDEX		52
+#define SECFP_SECLEN_INDEX		53
 
 
 /* For Outbound skb indices */
@@ -496,11 +497,12 @@ typedef struct inSA_s {
 	void (*inCompleteWithFrags)(struct device *dev,
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 			struct talitos_desc *desc,
-			void *context, int err);
+			void *context, int err
 #else
 			u32 *pdesc,
-			u32 err, void *context);
+			int err, void *context
 #endif
+			);
 
 	void (*inComplete)(struct device *dev,
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
@@ -508,7 +510,7 @@ typedef struct inSA_s {
 		void *context, int err
 #else
 		u32 *pdesc,
-		u32 err, void *context
+		int err, void *context
 #endif
 		);
 	unsigned int validIpPktLen; /* Sum of ESP or AH header + IP header
@@ -553,10 +555,10 @@ typedef struct {
 } inSAList_t;
 
 struct selNode_s {
-	ASF_IPSecRangeAddr_t ipAddrRange;
+	ASF_IPSecRangeAddr_t ipAddrRange; /* ipv4 addr are in host order */
 	ASF_uint8_t	  IP_Version;
-	unsigned short int prtStart;
-	unsigned short int prtEnd;
+	unsigned short int prtStart;		/* in host order */
+	unsigned short int prtEnd;			/* in host order */
 	unsigned char proto;
 	unsigned char ucMask;
 } ;
@@ -711,7 +713,7 @@ typedef struct outSA_s {
 	void (*outComplete)(struct device *dev,
 #if !defined(CONFIG_ASF_SEC4x) && !defined(CONFIG_VIRTIO)
 		struct talitos_desc *desc,
-		void *context, int error
+		void *context, u32 error
 #else
 		u32 *pdesc,
 		u32 error, void *context

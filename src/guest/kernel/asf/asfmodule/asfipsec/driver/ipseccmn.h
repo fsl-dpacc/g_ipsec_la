@@ -46,6 +46,8 @@ extern unsigned int ulTimeStamp_g;
 
 #define ASFIPSEC_ERR	asf_err
 #define ASFIPSEC_DPERR asf_dperr
+//#define ASF_IPSEC_DEBUG
+//#define ASFIPSEC_DEBUG_FRAME
 
 /* use this to selectively enable debug prints */
 #ifdef ASF_IPSEC_DEBUG
@@ -68,6 +70,9 @@ extern unsigned int ulTimeStamp_g;
 #define ASFIPSEC_FENTRY
 #define ASFIPSEC_FEXIT
 #endif
+
+#define ASFIPSEC_PKT	/*asf_err*/asf_debug
+#define ASFIPSEC_SA	asf_err/*asf_debug*/
 
 #ifdef ASFIPSEC_DEBUG_FRAME
 #define ASFIPSEC_FPRINT asf_print
